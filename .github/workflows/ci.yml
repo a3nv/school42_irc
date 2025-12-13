@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build-and-smoke:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        compiler: [ g++, clang++ ]
+
+    env:
+      CXX: ${{ matrix.compiler }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl
+
+      - name: Build
+        run: |
+          make
+
+      # - name: Run smoke test
+      #   run: |
+      #     ./tests/smoke.sh
