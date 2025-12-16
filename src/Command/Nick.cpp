@@ -1,4 +1,4 @@
-#include "../includes/Command.hpp"
+#include "../../includes/Command.hpp"
 
 Nick::Nick() : Command("NICK") {
     std::cout << "NICK command initialized." << std::endl

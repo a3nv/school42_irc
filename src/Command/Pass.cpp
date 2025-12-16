@@ -1,4 +1,4 @@
-#include "../includes/Command.hpp"
+#include "../../includes/Command.hpp"
 
 Pass::Pass() : Command("PASS") {
     std::cout << "PASS command initialized: " << std::endl 
