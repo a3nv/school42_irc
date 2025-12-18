@@ -18,6 +18,11 @@ RUN apt-get update && apt-get install -y \
     zsh \
     vim \
     neovim \
+	irssi \
+	ca-certificates \
+	iproute2 \
+    net-tools \
+    lsof \
     netcat-openbsd \
     python3 \
     python3-pip \
@@ -28,4 +33,4 @@ RUN apt-get update && apt-get install -y \
 RUN pip3 install --no-cache-dir norminette
 
 # Workdir where VS Code will mount the repo by default
-WORKDIR /workspaces/42prague_webserv
+WORKDIR /workspaces/school42_irc

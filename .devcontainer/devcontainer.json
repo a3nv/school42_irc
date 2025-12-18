@@ -18,5 +18,7 @@
         "ms-vscode.cmake-tools"
       ]
     }
-  }
+  },
+  "appPort": [ "4444:4444" ],
+  "forwardPorts": [ 4444 ]
 }

@@ -1,16 +1,22 @@
 #ifndef SERVER_HPP
 #define SERVER_HPP
-#include <iostream>
 
+#include <string>
 
-// Server class definition
 class Server {
-    private:
-        int _port;
-        std::string _password;
-    public:
-        Server(unsigned int port, const std::string& password); // Parameterized constructor
-        ~Server(); // Destructor "Do we need canonical form?"
+private:
+    int _port;
+    std::string _password;
+    int _listenFd;
+
+    Server(const Server& other);
+    Server& operator=(const Server& other);
+
+public:
+    Server(int port, const std::string& password);
+    ~Server();
+
+    void run();
 };
 
 
