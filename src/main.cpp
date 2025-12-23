@@ -4,6 +4,7 @@
 #include <cerrno>
 
 #include "../includes/Server.hpp"
+#include "../includes/Client.hpp"
 
 static void printUsage() {
 	std::cerr << "To run the server, use: ./ircserv <port> <password>" << std::endl;
@@ -64,6 +65,19 @@ static bool validatePassword(const char *s, std::string &err) {
     return true;
 }
 
+void printClientMap(const std::map<int, Client>& clients) {
+    std::cout << "Current Clients:" << std::endl;
+    for (std::map<int, Client>::const_iterator it = clients.begin(); it != clients.end(); ++it) {
+        const Client& client = it->second;
+        std::cout << "FD: " << client.getFd()
+                  << ", IP: " << client.getIp()
+                  << ", Port: " << client.getPort()
+                  << ", Name: " << client.getName()
+                  << ", Nickname: " << client.getNickname()
+                  << std::endl;
+    }
+}
+
 int main(int argc, char* argv[]) {
     if (argc != 3) {
         printUsage();
@@ -86,5 +100,6 @@ int main(int argc, char* argv[]) {
     std::cout << "Starting server on port: " << port << std::endl;
 	Server server(port, password);
     server.run();
+    printClientMap(server.getClients());
     return 0;
 }

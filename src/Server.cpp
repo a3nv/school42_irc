@@ -1,4 +1,5 @@
 #include "../includes/Server.hpp"
+#include "../includes/Client.hpp"
 
 #include <iostream>
 #include <stdexcept>
@@ -16,6 +17,10 @@ Server::Server(int port, const std::string& password)
 Server::~Server() {
     if (_listenFd != -1)
         close(_listenFd);
+}
+
+const std::map<int, Client>& Server::getClients() const {
+    return _clients;
 }
 
 void Server::run() {
@@ -53,11 +58,20 @@ void Server::run() {
         if (cfd < 0)
             throw std::runtime_error("accept() failed");
 
-        std::cout << "Client connected from "
-                  << inet_ntoa(client.sin_addr)
-                  << ":" << ntohs(client.sin_port)
-                  << std::endl;
+        std::string ip = inet_ntoa(client.sin_addr);//IP address
+        int port = ntohs(client.sin_port);          //Port number
+        acceptClient(cfd, ip, port);               //Accept the client
 
-        close(cfd);
+        std::cout << "Client connected from "
+                  << ip
+                  << ":" << port
+                  << std::endl;
+        std::cout << "Total clients: " << _clients.size() << std::endl;
     }
+}
+
+// Accept a new client and add to the clients map
+void Server::acceptClient(int cfd, const std::string& ip, int port) {
+    Client newClient(cfd, port, ip);                // Create new Client instance
+    _clients.insert(std::make_pair(cfd, newClient));// Store Client in the map
 }
