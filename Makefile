@@ -3,7 +3,8 @@ CFLAGS = -Wall -Werror -Wextra -std=c++98
 NAME = ircserv
 SRC = src/main.cpp\
 	src/Server.cpp\
-	src/Client.cpp
+	src/Client.cpp\
+	src/Signal.cpp
 
 OBJ = $(SRC:.cpp=.o)
 INCLUDES = -I ./includes

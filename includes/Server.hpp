@@ -2,8 +2,9 @@
 #define SERVER_HPP
 
 #include <string>
+#include <csignal>
 #include <map>
-// #include "Client.hpp"
+
 class Client; // Forward declaration to avoid circular dependency
 
 class Server {
@@ -21,7 +22,8 @@ public:
     ~Server();
 
     const std::map<int, Client>& getClients() const; // Getter for clients map
-
+    bool recvFromClient(int fd);
+    void cleanup();
     void run();
 };
 

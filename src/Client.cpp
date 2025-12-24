@@ -1,12 +1,14 @@
 #ifndef CLIENT_CPP
 #define CLIENT_CPP
 #include "../includes/Client.hpp"
+#include <iostream>
+#include <unistd.h>
 
 Client::Client(int fd, int port, const std::string& ip) : _fd(fd), _port(port), _ip(ip) {
-    std::cout << "Client initialized." << std::endl; // To be deleted
+    std::cout << "Client initialized. fd is: " << _fd << std::endl; // To be deleted
 }
 Client::~Client() {
-    std::cout << "Client destroyed." << std::endl; // To be deleted
+    std::cout << "Client destroyed. fd is: " << _fd << std::endl; // To be deleted
 }
 
 void Client::setName(const std::string& name) {_name = name;}
