@@ -11,6 +11,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <unistd.h>
+#include <stdio.h>
 
 Server::Server(int port, const std::string& password)
 : _port(port), _password(password), _listenFd(-1) {
@@ -139,7 +140,7 @@ bool Server::recvFromClient(int fd) {
 
 // Accept a new client and add to the clients map
 void Server::acceptClient(int cfd, const std::string& ip, int port) {
-    this->_clients.emplace(cfd, Client(cfd, port, ip));// Store Client in the map
+    this->_clients.insert(std::make_pair(cfd, Client(cfd, port, ip)));
 }
 
 void Server::cleanup() {

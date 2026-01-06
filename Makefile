@@ -1,5 +1,6 @@
-CC = c++
-CFLAGS = -Wall -Werror -Wextra -std=c++98
+CXX = c++
+CXXFLAGS = -Wall -Werror -Wextra -std=c++98
+CPPFLAGS = -I ./includes
 NAME = ircserv
 SRC = src/main.cpp\
 	src/Server.cpp\
@@ -12,10 +13,10 @@ INCLUDES = -I ./includes
 all:$(NAME)
 
 $(NAME):$(OBJ)
-	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $^
+	$(CXX) $(CXXFLAGS) $(OBJ) -o $(NAME)
 
-%.o: %.c
-	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
+%.o: %.cpp
+	$(CXX) $(CXXFLAGS) $(CPPFLAGS) -c $< -o $@
 
 clean:
 	rm -f $(OBJ)
@@ -25,4 +26,4 @@ fclean: clean
 
 re: fclean all
 
-./PHONY: all clean fclean re
+.PHONY: all clean fclean re
