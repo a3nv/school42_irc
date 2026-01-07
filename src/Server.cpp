@@ -6,6 +6,7 @@
 #include <stdexcept>
 #include <cstring>
 #include <csignal>
+#include <cerrno>
 
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -77,8 +78,10 @@ void Server::run() {
 		int activity = select(maxfd + 1, &readfds, NULL, NULL, NULL);
 
 		if (activity < 0) {
+			if (errno == EINTR)
+				continue;
 			perror("select");
-			continue;
+			break;
 		}
 
 		// Check listening socket
@@ -125,15 +128,29 @@ void Server::run() {
 
 bool Server::recvFromClient(int fd) {
 	char buffer[512];
-	ssize_t bytesRead = recv(fd, buffer, sizeof(buffer) - 1, 0);
+	int bytesRead;
+	std::map<int, Client>::iterator it;
+	std::string line;
+	
+	it = _clients.find(fd);
+	if (it == _clients.end())
+		return false;
+
+	bytesRead = recv(fd, buffer, sizeof(buffer), 0);
 	if (bytesRead <= 0) {
 		if (bytesRead < 0)
 			perror("recv");
 		std::cout << "Client disconnected. fd: " << fd << std::endl;
 		return false;
 	}
-	buffer[bytesRead] = '\0';
-	std::cout << "Received from fd " << fd << ": " << buffer << std::endl;
+	it->second.appendInput(buffer, (size_t) bytesRead);
+	if (it->second.inbufSize() > 8192) {
+		std::cout << "Client input buffer too large. fd: " << fd << std::endl;
+		return false;	
+	}
+	while (it->second.extractLine(line)) {
+		handleLine(fd, line);
+	}
 	return true;
 }
 
@@ -152,4 +169,8 @@ void Server::cleanup() {
 		close(_listenFd);
 		_listenFd = -1;
 	}
+}
+
+void Server::handleLine(int fd, const std::string &line) {
+    std::cout << "fd " << fd << " LINE: [" << line << "]" << std::endl;
 }

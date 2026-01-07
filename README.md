@@ -50,4 +50,6 @@ Client connected from 127.0.0.1:60992
 Client connected from 127.0.0.1:52888
 Client connected from 127.0.0.1:52898
 Client connected from 127.0.0.1:39826
+
+#5. once client is connected you can simply type a message in a client terminal it should be delivered to server
 ```
