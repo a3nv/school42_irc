@@ -53,3 +53,43 @@ Client connected from 127.0.0.1:39826
 
 #5. once client is connected you can simply type a message in a client terminal it should be delivered to server
 ```
+
+## Testing commands
+```bash
+PING :server1.example.net
+
+NICK John
+USER john 0 * :John Doe
+
+JOIN #42prague
+PART #42prague :gotta go
+QUIT :bye for now
+
+PRIVMSG #general :hello there friends
+
+
+#prefix
+:irc.example.net 001 john :Welcome to the Internet Relay Network john!john@host
+
+:nick!user@host PRIVMSG #general :hi
+
+:nick!user@host JOIN #general
+
+:nick!user@host QUIT :Connection reset by peer
+
+# rest
+MODE #general +o john
+TOPIC #general :Roadmap discussion at 18:00
+KICK #general troublemaker :spamming links
+NOTICE john :*** Looking up your hostname...
+
+
+#failed
+               # empty spaces
+:irc.example.net
+:irc.example.net     \r\n
+: #only colon
+# weird spacing
+PRIVMSG    #chan     :hello     there     
+
+```

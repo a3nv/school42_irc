@@ -3,6 +3,7 @@
 #include "../includes/Signal.hpp"
 
 #include <iostream>
+#include <sstream>
 #include <stdexcept>
 #include <cstring>
 #include <csignal>
@@ -13,6 +14,8 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <stdio.h>
+#include <vector>
+#include <algorithm> // for std::remove - consider we probably are not allowed to use this
 
 Server::Server(int port, const std::string& password)
 	: _port(port), _password(password), _listenFd(-1) {
@@ -171,6 +174,80 @@ void Server::cleanup() {
 	}
 }
 
+static void normalizeCommand(std::string &s) {
+	for (size_t i = 0; i < s.size(); ++i) {
+		unsigned char c = static_cast<unsigned char>(s[i]);
+		s[i] = static_cast<char>(std::toupper(c));
+	}
+}
+
+static void skipSpaces(const std::string &s, size_t &i) {
+	while(i < s.size() && s[i] == ' ')
+		++i;
+}
+
+static std::string readToken(const std::string &s, size_t &i) {
+    size_t start = i;
+    while (i < s.size() && s[i] != ' ')
+        ++i;
+    return s.substr(start, i - start);
+}
+
+static std::string stripCRLF(const std::string &line) {
+    size_t end = line.size();
+    while (end > 0 && (line[end - 1] == '\r' || line[end - 1] == '\n'))
+        --end;
+    return line.substr(0, end);
+}
+
+static bool parse(const std::string &raw, IrcMessage &out) {
+	std::string line = stripCRLF(raw);
+	size_t i = 0;
+	out.prefix.clear();
+	out.command.clear();
+	out.params.clear();
+	skipSpaces(line, i);
+	if (i >= line.size())
+		return false;
+	if (line[i] == ':') {
+		++i;
+		if (i >= line.size())
+			return false;
+		out.prefix = readToken(line, i);
+		skipSpaces(line, i);
+		if (i >= line.size())
+			return false;
+	}
+	out.command = readToken(line, i);
+    if (out.command.empty())
+        return false;
+    normalizeCommand(out.command);
+	while (i < line.size()) {
+        skipSpaces(line, i);
+        if (i >= line.size())
+            break;
+
+        if (line[i] == ':') {
+            out.params.push_back(line.substr(i + 1));
+            break;
+        } else {
+            out.params.push_back(readToken(line, i));
+        }
+    }
+    return true;
+}
+
 void Server::handleLine(int fd, const std::string &line) {
-    std::cout << "fd " << fd << " LINE: [" << line << "]" << std::endl;
+	IrcMessage msg;
+	std::cout << "fd " << fd << " LINE: [" << line << "]" << std::endl;
+	if (!parse(line, msg)) {
+        std::cout << "Parse: empty/invalid line\n";
+        return;
+    }
+	std::cout << "CMD: " << msg.command << "\n";
+    if (!msg.prefix.empty())
+        std::cout << "PREFIX: " << msg.prefix << "\n";
+
+    for (size_t k = 0; k < msg.params.size(); ++k)
+        std::cout << "ARG[" << k << "]: " << msg.params[k] << "\n";
 }
