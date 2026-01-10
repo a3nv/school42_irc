@@ -3,6 +3,7 @@
 #include "../includes/Signal.hpp"
 
 #include <iostream>
+#include <sstream>
 #include <stdexcept>
 #include <cstring>
 #include <csignal>
@@ -13,6 +14,8 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <stdio.h>
+#include <vector>
+#include <algorithm> // for std::remove - consider we probably are not allowed to use this
 
 Server::Server(int port, const std::string& password)
 	: _port(port), _password(password), _listenFd(-1) {
@@ -171,6 +174,31 @@ void Server::cleanup() {
 	}
 }
 
+void normalize(std::string &s) {
+	for (size_t i = 0; i < s.length(); i++) {
+		s[i] = std::toupper(s[i]);
+	}
+}
+
+std::vector<std::string> parse(const std::string &line) {
+	std::stringstream ss(line);
+	std::vector<std::string> v;
+	while(ss.good()) {
+		std::string sub;
+		std::getline(ss, sub, ' ');
+		std::remove(sub.begin(), sub.end(), ' ');
+		if (sub.length() > 0)
+			v.push_back(sub);
+	}
+	return v;
+}
+
 void Server::handleLine(int fd, const std::string &line) {
     std::cout << "fd " << fd << " LINE: [" << line << "]" << std::endl;
+	std::vector<std::string> v = parse(line);
+	normalize(v[0]);
+	std::cout << "i: " << 0 << " - command: " << v[0] << std::endl;
+	for (size_t i = 1; i < v.size(); i++) {
+		std::cout << "i: " << i << " - string: " << v[i] << std::endl;
+	}
 }
