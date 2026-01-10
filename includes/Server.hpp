@@ -4,8 +4,15 @@
 #include <string>
 #include <csignal>
 #include <map>
+#include <vector>
 
 class Client; 
+
+struct IrcMessage {
+	std::string prefix;
+	std::string command;
+	std::vector<std::string> params;
+};
 
 class Server {
 	private:
