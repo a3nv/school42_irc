@@ -6,7 +6,8 @@
 #include <map>
 #include <vector>
 
-class Client; 
+class Client;
+class Command;
 
 struct IrcMessage {
 	std::string prefix;
@@ -16,14 +17,16 @@ struct IrcMessage {
 
 class Server {
 	private:
-		int						_port;
-		std::string				_password;
-		int						_listenFd;
-		std::map<int, Client>	_clients;
+		int								_port;
+		std::string						_password;
+		int								_listenFd;
+		std::map<int, Client>			_clients;
+		std::map<std::string, Command*> _commands;
 
 		Server(const Server& other);
 		void acceptClient(int cfd, const std::string& ip, int port);
-		// Server& operator=(const Server& other);
+		void initCommands();
+		void destroyCommands();
 	public:
 		Server(int port, const std::string& password);
 		~Server();
@@ -33,6 +36,8 @@ class Server {
 		void cleanup();
 		void run();
 		void handleLine(int fd, const std::string &line);
+		void sendToClient(int fd, const std::string &msg);
+		bool isRegistered(const Client &c) const;
 };
 
 

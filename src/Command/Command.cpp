@@ -1,9 +1,17 @@
 #include "../../includes/Command.hpp"
 
-Command::Command(const std::string& name) : _name(name) {
-    std::cout << "Command " << _name << " initialized." << std::endl; // To be deleted
+Command::Command(const std::string& name) : _name(name) {}
+Command::~Command() {}
+
+bool Command::requiresRegistration() const
+{
+    return true;
 }
 
-Command::~Command() {
-    std::cout << "Command " << _name << " destroyed." << std::endl; // To be deleted
+void Command::run(Server &server, int fd, Client &client, const IrcMessage &msg)
+{
+    if (requiresRegistration()) {
+        (void)client;
+    }
+    execute(server, fd, client, msg);
 }

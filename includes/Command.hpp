@@ -5,12 +5,20 @@
 #include <string>
 
 // Base Command class
+class Server;
+class Client;
+struct IrcMessage;
 class Command {
     protected:
         std::string _name;
     public:
         Command(const std::string& name);
         virtual ~Command();
+		void run(Server &server, int fd, Client &client, const IrcMessage &msg);
+
+	protected:
+		virtual bool requiresRegistration() const;
+		virtual void execute(Server &server, int fd, Client &client, const IrcMessage &msg) = 0;
 };
 
 //--------------------Connection & Registration--------------------
@@ -70,9 +78,13 @@ class Quit : public Command {
 //----------------Keep Alive----------------------------
 // PING Command derived class
 class Ping : public Command {
-    public:
-        Ping() : Command("PING") {}
-        ~Ping() {}
+public:
+    Ping();
+    virtual ~Ping();
+
+protected:
+    virtual bool requiresRegistration() const;
+    virtual void execute(Server &server, int fd, Client &client, const IrcMessage &msg);
 };
 
 // PONG Command derived class

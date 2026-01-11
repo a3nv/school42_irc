@@ -1,6 +1,7 @@
 #include "../includes/Server.hpp"
 #include "../includes/Client.hpp"
 #include "../includes/Signal.hpp"
+#include "../includes/Command.hpp"
 
 #include <iostream>
 #include <sstream>
@@ -19,9 +20,11 @@
 
 Server::Server(int port, const std::string& password)
 	: _port(port), _password(password), _listenFd(-1) {
+		initCommands();
 	}
 
 Server::~Server() {
+	destroyCommands();
 	cleanup();
 }
 
@@ -239,15 +242,55 @@ static bool parse(const std::string &raw, IrcMessage &out) {
 
 void Server::handleLine(int fd, const std::string &line) {
 	IrcMessage msg;
+	std::map<int, Client>::iterator cit;
+    std::map<std::string, Command*>::iterator it;
 	std::cout << "fd " << fd << " LINE: [" << line << "]" << std::endl;
 	if (!parse(line, msg)) {
         std::cout << "Parse: empty/invalid line\n";
         return;
     }
-	std::cout << "CMD: " << msg.command << "\n";
-    if (!msg.prefix.empty())
-        std::cout << "PREFIX: " << msg.prefix << "\n";
+	cit = _clients.find(fd);
+    if (cit == _clients.end())
+        return;
 
-    for (size_t k = 0; k < msg.params.size(); ++k)
-        std::cout << "ARG[" << k << "]: " << msg.params[k] << "\n";
+    it = _commands.find(msg.command);
+    if (it == _commands.end()) {
+        sendToClient(fd, ":irc42 421 " + msg.command + " :Unknown command");
+        return;
+    }
+    it->second->run(*this, fd, cit->second, msg);
+}
+
+static bool endsWithCRLF(const std::string &s)
+{
+    if (s.size() < 2)
+        return false;
+    return (s[s.size() - 2] == '\r' && s[s.size() - 1] == '\n');
+}
+void Server::sendToClient(int fd, const std::string &msg)
+{
+    std::string out;
+
+    out = msg;
+    if (!endsWithCRLF(out))
+        out += "\r\n";
+    if (::send(fd, out.c_str(), out.size(), MSG_NOSIGNAL) < 0)
+        perror("send");
+}
+
+void Server::initCommands()
+{
+    _commands["PING"] = new Ping();
+}
+
+void Server::destroyCommands()
+{
+    std::map<std::string, Command*>::iterator it;
+
+    it = _commands.begin();
+    while (it != _commands.end()) {
+        delete it->second;
+        ++it;
+    }
+    _commands.clear();
 }
