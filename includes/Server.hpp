@@ -6,13 +6,23 @@
 #include <map>
 #include <vector>
 
-class Client; 
+class Client;
+class Command;
+
+enum {
+	ERR_UNKNOWNCOMMAND = 421,
+	ERR_NONICKNAMEGIVEN = 431,
+	ERR_ERRONEUSNICKNAME = 432,
+	ERR_NICKNAMEINUSE = 433,
+	RPL_WELCOME = 001
+};
 
 struct IrcMessage {
 	std::string prefix;
 	std::string command;
 	std::vector<std::string> params;
 };
+
 
 class Server {
 	private:
@@ -33,6 +43,9 @@ class Server {
 		void cleanup();
 		void run();
 		void handleLine(int fd, const std::string &line);
+		void dispatchCommand(int fd, const IrcMessage &msg);
+		void sendError(int fd, int code);
+		void handleNick(int fd, const IrcMessage &msg);
 };
 
 

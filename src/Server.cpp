@@ -1,6 +1,7 @@
 #include "../includes/Server.hpp"
 #include "../includes/Client.hpp"
 #include "../includes/Signal.hpp"
+#include "../includes/Command.hpp"
 
 #include <iostream>
 #include <sstream>
@@ -250,4 +251,33 @@ void Server::handleLine(int fd, const std::string &line) {
 
     for (size_t k = 0; k < msg.params.size(); ++k)
         std::cout << "ARG[" << k << "]: " << msg.params[k] << "\n";
+	dispatchCommand(fd, msg);
+}
+
+
+
+void Server::dispatchCommand(int fd, const IrcMessage &msg) {
+	if (msg.command == "NICK") {
+		handleNick(fd, msg);
+	} else if (msg.command == "USER") {
+		// Handle USER command
+	} else if (msg.command == "PING") {
+		// Handle PING command
+	} else {
+		sendError(fd, 421); // 421 = Unknown command
+	}
+}
+
+void Server::handleNick(int fd, const IrcMessage &msg) {
+	if (msg.params.size() < 1) {
+		sendError(fd, ERR_NONICKNAMEGIVEN); // 431 = No nickname given
+		return;
+	}
+	Nick *newNick = new Nick();
+	
+}
+
+void Server::sendError(int fd, int errorCode){
+
+
 }

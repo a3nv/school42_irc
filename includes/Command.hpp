@@ -4,6 +4,8 @@
 #include <iostream>
 #include <string>
 
+class Server;
+
 // Base Command class
 class Command {
     protected:
@@ -19,6 +21,7 @@ class Nick : public Command {
     public:
         Nick();
         ~Nick();
+        bool validate(const std::string& nickname, const Server& server);
 };
 
 // USER Command derived class
