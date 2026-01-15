@@ -249,12 +249,12 @@ void Server::handleLine(int fd, const std::string &line) {
     if (!msg.prefix.empty())
         std::cout << "PREFIX: " << msg.prefix << "\n";
 
-    for (size_t k = 0; k < msg.params.size(); ++k)
-        std::cout << "ARG[" << k << "]: " << msg.params[k] << "\n";
+    for (size_t k = 0; k < msg.params.size(); ++k){
+		std::cout << "ARG[" << k << "]: " << msg.params[k] << "\n";
+	}
+	
 	dispatchCommand(fd, msg);
 }
-
-
 
 void Server::dispatchCommand(int fd, const IrcMessage &msg) {
 	if (msg.command == "NICK") {
@@ -264,20 +264,54 @@ void Server::dispatchCommand(int fd, const IrcMessage &msg) {
 	} else if (msg.command == "PING") {
 		// Handle PING command
 	} else {
-		sendError(fd, 421); // 421 = Unknown command
+		sendError(fd, 421, msg.params.empty() ? "" : msg.params[0]); // 421 = Unknown command
 	}
 }
+// --------------Handle NICK command-----------------
 
 void Server::handleNick(int fd, const IrcMessage &msg) {
 	if (msg.params.size() < 1) {
-		sendError(fd, ERR_NONICKNAMEGIVEN); // 431 = No nickname given
+		sendError(fd, ERR_NONICKNAMEGIVEN, ""); // 431 = No nickname given
 		return;
 	}
-	Nick *newNick = new Nick();
+	Nick newNickCommand;
+	std::string newNick = msg.params[0];
+	newNickCommand.execute(*this, const_cast<IrcMessage&>(msg), fd);
+
+	_clients[fd].setNickname(newNick);
+	std::cout << "Client fd " << fd << " set nickname to " << newNick << std::endl;
 	
 }
+bool Server::uniqueNickname(const std::string& nickname, int fd) const{
+	for (std::map<int, Client>::const_iterator it = _clients.begin();
+			it != _clients.end(); ++it) {
+		if (it->second.getNickname() == nickname && !(it->first == fd)) {
+			return false; // Nickname already in use
+		}
+	}
+	return true; // Nickname is unique
+}
 
-void Server::sendError(int fd, int errorCode){
-
+void Server::sendError(int fd, int errorCode, std::string param) const{
+	std::string errorMsg;
+	switch (errorCode) {
+		case ERR_UNKNOWNCOMMAND:
+			errorMsg = "421 " + param + " :Unknown command";
+			break;
+		case ERR_NONICKNAMEGIVEN:
+			errorMsg = "431 :No nickname given";
+			break;
+		case ERR_ERRONEUSNICKNAME:
+			errorMsg = "432 " + param + " :Erroneous nickname";
+			break;
+		case ERR_NICKNAMEINUSE:
+			errorMsg = "433 " + param + " :Nickname is already in use";
+			break;
+		default:
+			errorMsg = "400 :Unknown error";
+			break;
+	}
+	errorMsg += "\r\n";
+	send(fd, errorMsg.c_str(), errorMsg.length(), 0);
 
 }

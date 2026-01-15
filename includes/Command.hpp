@@ -1,10 +1,12 @@
 #ifndef COMMAND_HPP
 #define COMMAND_HPP
 
+#include "IrcNumeric.hpp"
 #include <iostream>
 #include <string>
 
 class Server;
+struct IrcMessage;
 
 // Base Command class
 class Command {
@@ -13,6 +15,7 @@ class Command {
     public:
         Command(const std::string& name);
         virtual ~Command();
+        virtual bool execute(Server& server, IrcMessage& message, int fd) = 0;
 };
 
 //--------------------Connection & Registration--------------------
@@ -21,7 +24,8 @@ class Nick : public Command {
     public:
         Nick();
         ~Nick();
-        bool validate(const std::string& nickname, const Server& server);
+        bool validate(const std::string& nickname, const Server& server, int fd);
+        bool execute(Server& server, IrcMessage& message, int fd);
 };
 
 // USER Command derived class

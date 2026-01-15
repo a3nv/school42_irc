@@ -1,17 +1,13 @@
 #include "../../includes/Command.hpp"
+#include "../../includes/Server.hpp"
 
 Nick::Nick() : Command("NICK") {
-    std::cout << "NICK command initialized." << std::endl
-    << "Changes or sets the nickname of a user. <---- MUST BE UNIQUE" << std::endl; // To be deleted
 }
 
 Nick::~Nick() {
-    std::cout << "NICK command destroyed." << std::endl; // To be deleted
 }
 
 bool isValidNickname(const std::string& nickname) {
-    // Basic validation: nickname must be 1-9 characters, start with a letter,
-    // and contain only letters, digits, hyphens, and underscores.
     if (nickname.empty() || nickname.length() > 9)
         return false;
     if (!std::isalpha(nickname[0]))
@@ -23,10 +19,22 @@ bool isValidNickname(const std::string& nickname) {
     return true;
 }
 
-bool Nick::validate(const std::string& nickname, const Server& server) {
+bool Nick::validate(const std::string& nickname, const Server& server, int fd) {
     if (!isValidNickname(nickname)) {
+        server.sendError(fd, ERR_ERRONEUSNICKNAME, nickname);
         return false; // Invalid nickname format
     }
-    // Check for uniqueness
-    return true; // Nickname is valid and unique
+    if (!server.uniqueNickname(nickname, fd)) {
+        server.sendError(fd, ERR_NICKNAMEINUSE, nickname);
+        return false; // Nickname already in use
+    }
+    return true;
+}
+
+bool Nick::execute(Server& server, IrcMessage& message, int fd) {
+    std::string newNick = message.params[0];
+    if (!validate(newNick, server, fd)) {
+        return false;
+    }
+    return true;
 }

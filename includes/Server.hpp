@@ -1,6 +1,7 @@
 #ifndef SERVER_HPP
 #define SERVER_HPP
 
+#include "IrcNumeric.hpp"
 #include <string>
 #include <csignal>
 #include <map>
@@ -8,14 +9,6 @@
 
 class Client;
 class Command;
-
-enum {
-	ERR_UNKNOWNCOMMAND = 421,
-	ERR_NONICKNAMEGIVEN = 431,
-	ERR_ERRONEUSNICKNAME = 432,
-	ERR_NICKNAMEINUSE = 433,
-	RPL_WELCOME = 001
-};
 
 struct IrcMessage {
 	std::string prefix;
@@ -38,14 +31,19 @@ class Server {
 		Server(int port, const std::string& password);
 		~Server();
 
-		const std::map<int, Client>& getClients() const; 
+		const std::map<int, Client>& getClients() const;
+		int getClientFd(const Client& client) const; 
 		bool recvFromClient(int fd);
 		void cleanup();
 		void run();
 		void handleLine(int fd, const std::string &line);
 		void dispatchCommand(int fd, const IrcMessage &msg);
-		void sendError(int fd, int code);
+		void sendError(int fd, int code, std::string param) const;
+
+	// Command handlers	
 		void handleNick(int fd, const IrcMessage &msg);
+		bool uniqueNickname(const std::string& nickname, int fd) const;
+
 };
 
 
