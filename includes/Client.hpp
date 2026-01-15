@@ -13,6 +13,7 @@ class Client {
 		std::string _nickname;
 		std::string _inbuf;
 	public:
+		Client();
 		Client(int fd, int port, const std::string& ip);
 		~Client();
 
