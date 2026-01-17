@@ -8,6 +8,7 @@ SRC = src/main.cpp\
 	src/Signal.cpp\
 	src/Command/Command.cpp\
 	src/Command/Ping.cpp\
+	src/Command/Nick.cpp
 
 OBJ = $(SRC:.cpp=.o)
 INCLUDES = -I ./includes

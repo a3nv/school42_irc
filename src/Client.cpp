@@ -3,6 +3,9 @@
 #include <string>
 #include <unistd.h>
 
+Client::Client() : _fd(-1), _port(-1), _ip("") {
+}
+
 Client::Client(int fd, int port, const std::string& ip) : _fd(fd), _port(port), _ip(ip) {
 }
 Client::~Client() {
