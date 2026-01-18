@@ -9,14 +9,33 @@
 #include <cstring>
 #include <csignal>
 #include <cerrno>
+#include <cctype>
+#include <iomanip>
 
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <stdio.h>
-#include <vector>
-#include <algorithm> // for std::remove - consider we probably are not allowed to use this
+
+static bool endsWithCRLF(const std::string &s)
+{
+    if (s.size() < 2)
+        return false;
+    return (s[s.size() - 2] == '\r' && s[s.size() - 1] == '\n');
+}
+
+static std::string numeric3(int code)
+{
+    std::ostringstream oss;
+    oss << std::setw(3) << std::setfill('0') << code;
+    return oss.str();
+}
+
+static std::string serverName()
+{
+    return "irc42";
+}
 
 Server::Server(int port, const std::string& password)
 	: _port(port), _password(password), _listenFd(-1) {
@@ -243,36 +262,20 @@ static bool parse(const std::string &raw, IrcMessage &out) {
 void Server::handleLine(int fd, const std::string &line) {
 	IrcMessage msg;
 	std::map<int, Client>::iterator cit;
-    std::map<std::string, Command*>::iterator it;
 	std::cout << "fd " << fd << " LINE: [" << line << "]" << std::endl;
 	if (!parse(line, msg)) {
-        std::cout << "Parse: empty/invalid line\n";
-        return;
-    }
-	cit = _clients.find(fd);
-    if (cit == _clients.end())
-        return;
-
-    it = _commands.find(msg.command);
-    if (it == _commands.end()) {
-        sendToClient(fd, ":irc42 421 " + msg.command + " :Unknown command");
-        return;
-    }
-    it->second->run(*this, fd, cit->second, msg);
-	for (size_t k = 0; k < msg.params.size(); ++k){
-		std::cout << "ARG[" << k << "]: " << msg.params[k] << "\n";
+		std::cout << "Parse: empty/invalid line\n";
+		return;
 	}
-
-	dispatchCommand(fd, msg);
+	cit = _clients.find(fd);
+	if (cit == _clients.end())
+		return;
+	for (size_t k = 0; k < msg.params.size(); ++k)
+		std::cout << "ARG[" << k << "]: " << msg.params[k] << "\n";
+	dispatchCommand(fd, cit->second, msg);
 }
 
-static bool endsWithCRLF(const std::string &s)
-{
-    if (s.size() < 2)
-        return false;
-    return (s[s.size() - 2] == '\r' && s[s.size() - 1] == '\n');
-}
-void Server::sendToClient(int fd, const std::string &msg)
+void Server::sendToClient(int fd, const std::string &msg) const
 {
     std::string out;
 
@@ -285,76 +288,69 @@ void Server::sendToClient(int fd, const std::string &msg)
 
 void Server::initCommands()
 {
+	_commands["NICK"] = new Nick();
     _commands["PING"] = new Ping();
+
 }
 
 void Server::destroyCommands()
 {
     std::map<std::string, Command*>::iterator it;
 
-    it = _commands.begin();
-    while (it != _commands.end()) {
+	for (it = _commands.begin(); it != _commands.end(); ++it)
         delete it->second;
-        ++it;
-    }
     _commands.clear();
-
-void Server::dispatchCommand(int fd, const IrcMessage &msg) {
-	if (msg.command == "NICK") {
-		handleNick(fd, msg);
-	} else if (msg.command == "USER") {
-		// Handle USER command
-	} else if (msg.command == "PING") {
-		// Handle PING command
-	} else {
-		sendError(fd, 421, msg.params.empty() ? "" : msg.params[0]); // 421 = Unknown command
-	}
 }
-// --------------Handle NICK command-----------------
 
-void Server::handleNick(int fd, const IrcMessage &msg) {
-	if (msg.params.size() < 1) {
-		sendError(fd, ERR_NONICKNAMEGIVEN, ""); // 431 = No nickname given
+void Server::dispatchCommand(int fd, Client &client, const IrcMessage &msg) {
+	std::map<std::string, Command*>::iterator it;
+	it = _commands.find(msg.command);
+	if (it == _commands.end()) {
+		sendError(fd, ERR_UNKNOWNCOMMAND, msg.command);
 		return;
 	}
-	Nick newNickCommand;
-	std::string newNick = msg.params[0];
-	newNickCommand.execute(*this, const_cast<IrcMessage&>(msg), fd);
-
-	_clients[fd].setNickname(newNick);
-	std::cout << "Client fd " << fd << " set nickname to " << newNick << std::endl;
-
-}
-bool Server::uniqueNickname(const std::string& nickname, int fd) const{
-	for (std::map<int, Client>::const_iterator it = _clients.begin();
-			it != _clients.end(); ++it) {
-		if (it->second.getNickname() == nickname && !(it->first == fd)) {
-			return false; // Nickname already in use
-		}
-	}
-	return true; // Nickname is unique
+	it->second->run(*this, fd, client, msg);
 }
 
-void Server::sendError(int fd, int errorCode, std::string param) const{
-	std::string errorMsg;
-	switch (errorCode) {
-		case ERR_UNKNOWNCOMMAND:
-			errorMsg = "421 " + param + " :Unknown command";
-			break;
-		case ERR_NONICKNAMEGIVEN:
-			errorMsg = "431 :No nickname given";
-			break;
-		case ERR_ERRONEUSNICKNAME:
-			errorMsg = "432 " + param + " :Erroneous nickname";
-			break;
-		case ERR_NICKNAMEINUSE:
-			errorMsg = "433 " + param + " :Nickname is already in use";
-			break;
-		default:
-			errorMsg = "400 :Unknown error";
-			break;
-	}
-	errorMsg += "\r\n";
-	send(fd, errorMsg.c_str(), errorMsg.length(), 0);
+void Server::sendError(int fd, int errorCode, std::string param) const {
+	std::map<int, Client>::const_iterator it;
+    std::string target;
+    std::string line;
+    std::string code;
 
+    target = "*";
+    it = _clients.find(fd);
+    if (it != _clients.end() && !it->second.getNickname().empty())
+        target = it->second.getNickname();
+
+    code = numeric3(errorCode);
+    line = ":" + serverName() + " " + code + " " + target;
+
+    switch (errorCode) {
+        case ERR_UNKNOWNCOMMAND:
+            line += " " + param + " :Unknown command";
+            break;
+        case ERR_NONICKNAMEGIVEN:
+            line += " :No nickname given";
+            break;
+        case ERR_ERRONEUSNICKNAME:
+            line += " " + param + " :Erroneous nickname";
+            break;
+        case ERR_NICKNAMEINUSE:
+            line += " " + param + " :Nickname is already in use";
+            break;
+        default:
+            line += " :Unknown error";
+            break;
+    }
+    sendToClient(fd, line);
+}
+
+bool Server::isNickTaken(const std::string &nickname, int exceptFd) const
+{
+    for (std::map<int, Client>::const_iterator it = _clients.begin(); it != _clients.end(); ++it) {
+        if (it->first != exceptFd && it->second.getNickname() == nickname)
+            return true;
+    }
+    return false;
 }

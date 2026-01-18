@@ -1,14 +1,9 @@
 #include "../../includes/Command.hpp"
 #include "../../includes/Server.hpp"
 
-Ping::Ping() : Command("PING") {
-    std::cout << "PING command initialized." << std::endl
-    << "Sends a PING message to check if the client is still connected." << std::endl; // To be deleted
-}
+Ping::Ping() : Command("PING") {}
 
-Ping::~Ping() {
-    std::cout << "PING command destroyed." << std::endl; // To be deleted
-}
+Ping::~Ping() {}
 
 bool Ping::requiresRegistration() const
 {
@@ -18,13 +13,14 @@ bool Ping::requiresRegistration() const
 void Ping::execute(Server &server, int fd, Client &client, const IrcMessage &msg)
 {
     std::string token;
-    (void)client;
 
+    (void)client;
     if (msg.params.empty()) {
+        // todo: repalce with send error ERR_NOORIGIN (409) - not yet in IrcNumeric.hpp
         server.sendToClient(fd, ":irc42 409 :No origin specified");
         return;
     }
-    token = msg.params[0];
 
-    server.sendToClient(fd, "PONG :"+ token);
+    token = msg.params[0];
+    server.sendToClient(fd, "PONG :" + token);
 }

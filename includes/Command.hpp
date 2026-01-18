@@ -12,37 +12,47 @@ struct IrcMessage;
 class Server;
 class Client;
 struct IrcMessage;
-class Command {
-    protected:
-        std::string _name;
-    public:
-        Command(const std::string& name);
-        virtual ~Command();
-		void run(Server &server, int fd, Client &client, const IrcMessage &msg);
 
-	protected:
-		virtual bool requiresRegistration() const;
-		virtual void execute(Server &server, int fd, Client &client, const IrcMessage &msg) = 0;
+class Command {
+protected:
+    std::string _name;
+
+    // Overrides in derived commands if they are usable before registration.
+    virtual bool requiresRegistration() const;
+
+    // Implements command-specific logic.
+    virtual void execute(Server &server, int fd, Client &client, const IrcMessage &msg) = 0;
+
+public:
+    Command(const std::string &name);
+    virtual ~Command();
+
+    const std::string &name() const;
+
+    // Entry point called by Server.
+    void run(Server &server, int fd, Client &client, const IrcMessage &msg);
 };
 
 //--------------------Connection & Registration--------------------
-// NICK Command derived class
 class Nick : public Command {
-    public:
-        Nick();
-        ~Nick();
-        bool validate(const std::string& nickname, const Server& server, int fd);
-        bool execute(Server& server, IrcMessage& message, int fd);
+public:
+    Nick();
+    virtual ~Nick();
+
+protected:
+    virtual void execute(Server &server, int fd, Client &client, const IrcMessage &msg);
+
+private:
+    bool validate(const std::string &nickname, const Server &server, int fd) const;
+    static bool isValidNickname(const std::string &nickname);
 };
 
-// USER Command derived class
 class User : public Command {
     public:
         User();
         ~User();
 };
 
-// PASS Command derived class
 class Pass : public Command {
     public:
         Pass();
@@ -82,7 +92,6 @@ class Quit : public Command {
 };
 
 //----------------Keep Alive----------------------------
-// PING Command derived class
 class Ping : public Command {
 public:
     Ping();

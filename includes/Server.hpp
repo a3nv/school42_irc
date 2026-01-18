@@ -39,15 +39,12 @@ class Server {
 		void cleanup();
 		void run();
 		void handleLine(int fd, const std::string &line);
-		void dispatchCommand(int fd, const IrcMessage &msg);
+		void dispatchCommand(int fd, Client &client, const IrcMessage &msg);
 		void sendError(int fd, int code, std::string param) const;
 
-	// Command handlers
-		void handleNick(int fd, const IrcMessage &msg);
-		bool uniqueNickname(const std::string& nickname, int fd) const;
-
-		void sendToClient(int fd, const std::string &msg);
+		void sendToClient(int fd, const std::string &msg) const;
 		bool isRegistered(const Client &c) const;
+		bool isNickTaken(const std::string &nickname, int exceptFd) const;
 };
 
 
