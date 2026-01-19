@@ -40,6 +40,7 @@ public:
     virtual ~Nick();
 
 protected:
+    virtual bool requiresRegistration() const;
     virtual void execute(Server &server, int fd, Client &client, const IrcMessage &msg);
 
 private:
@@ -48,24 +49,40 @@ private:
 };
 
 class User : public Command {
-    public:
-        User();
-        ~User();
+public:
+    User();
+    virtual ~User();
+protected:
+    virtual bool requiresRegistration() const;
+    virtual void execute(Server &server, int fd, Client &client, const IrcMessage &msg);
 };
 
 class Pass : public Command {
-    public:
-        Pass();
-        ~Pass();
+public:
+    Pass();
+    virtual ~Pass();
+protected:
+    virtual bool requiresRegistration() const;
+    virtual void execute(Server &server, int fd, Client &client, const IrcMessage &msg);
 };
 
 //--------------------Messaging--------------------
 
 // PRIVMSG Command derived class
 class PrivMsg : public Command {
-    public:
-        PrivMsg();
-        ~PrivMsg();
+public:
+    PrivMsg();
+    virtual ~PrivMsg();
+protected:
+    virtual void execute(Server &server, int fd, Client &client, const IrcMessage &msg);
+};
+
+class Notice : public Command {
+public:
+    Notice();
+    virtual ~Notice();
+protected:
+    virtual void execute(Server &server, int fd, Client &client, const IrcMessage &msg);
 };
 
 //--------------------CHANNEL--------------------
@@ -84,11 +101,13 @@ class Part : public Command {
 };
 
 //--------------------DISCONNECT---------------------
-// QUIT Command derived class
 class Quit : public Command {
-    public:
-        Quit();
-        ~Quit();
+public:
+    Quit();
+    virtual ~Quit();
+protected:
+    virtual bool requiresRegistration() const;
+    virtual void execute(Server &server, int fd, Client &client, const IrcMessage &msg);
 };
 
 //----------------Keep Alive----------------------------
@@ -102,11 +121,13 @@ protected:
     virtual void execute(Server &server, int fd, Client &client, const IrcMessage &msg);
 };
 
-// PONG Command derived class
 class Pong : public Command {
-    public:
-        Pong();
-        ~Pong();
+public:
+    Pong();
+    virtual ~Pong();
+protected:
+    virtual bool requiresRegistration() const;
+    virtual void execute(Server &server, int fd, Client &client, const IrcMessage &msg);
 };
 
 //------------------Channel Operator ------------------

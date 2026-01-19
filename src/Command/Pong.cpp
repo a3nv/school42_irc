@@ -1,10 +1,13 @@
 #include "../../includes/Command.hpp"
+#include "../../includes/Server.hpp"
+#include "../../includes/Client.hpp"
 
-Pong::Pong() : Command("PONG") {
-    std::cout << "PONG command initialized." << std::endl
-    << "Response to a PING message to keep the connection alive." << std::endl; // To be deleted
-}
+Pong::Pong() : Command("PONG") {}
+Pong::~Pong() {}
 
-Pong::~Pong() {
-    std::cout << "PONG command destroyed." << std::endl; // To be deleted
+bool Pong::requiresRegistration() const { return false; }
+
+void Pong::execute(Server &server, int fd, Client &client, const IrcMessage &msg)
+{
+    (void)server; (void)fd; (void)client; (void)msg;
 }

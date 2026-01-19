@@ -1,10 +1,26 @@
 #include "../../includes/Command.hpp"
+#include "../../includes/Server.hpp"
+#include "../../includes/Client.hpp"
 
-Pass::Pass() : Command("PASS") {
-    std::cout << "PASS command initialized: " << std::endl 
-    << "Authenticates the client with the server password before registration." << std::endl; // To be deleted
-}
+Pass::Pass() : Command("PASS") {}
+Pass::~Pass() {}
 
-Pass::~Pass() {
-    std::cout << "PASS command destroyed." << std::endl; // To be deleted
+bool Pass::requiresRegistration() const { return false; }
+
+void Pass::execute(Server &server, int fd, Client &client, const IrcMessage &msg)
+{
+    if (client.isRegistered()) {
+        server.sendError(fd, ERR_ALREADYREGISTRED, "");
+        return;
+    }
+    if (msg.params.empty()) {
+        server.sendError(fd, ERR_NEEDMOREPARAMS, "PASS");
+        return;
+    }
+    if (server.passwordRequired() && msg.params[0] != server.getPassword()) {
+        server.sendError(fd, ERR_PASSWDMISMATCH, "");
+        return;
+    }
+    client.setHasPass(true);
+    server.tryRegister(fd, client);
 }

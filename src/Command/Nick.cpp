@@ -2,11 +2,16 @@
 #include "../../includes/Server.hpp"
 #include "../../includes/Client.hpp"
 
+#include <cctype>
+
 Nick::Nick() : Command("NICK") {
 }
 
 Nick::~Nick() {
 }
+
+bool Nick::requiresRegistration() const { return false; }
+
 
 // nickname rules: 
 // - 1..9 chars
@@ -65,4 +70,6 @@ void Nick::execute(Server &server, int fd, Client &client, const IrcMessage &msg
     // - update registration state (PASS/NICK/USER)
 	std::cout << "Setting nick: " << newNick << std::endl;
     client.setNickname(newNick);
+	client.setHasNick(true);
+	server.tryRegister(fd, client);
 }

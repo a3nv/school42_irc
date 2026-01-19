@@ -7,8 +7,15 @@ SRC = src/main.cpp\
 	src/Client.cpp\
 	src/Signal.cpp\
 	src/Command/Command.cpp\
+	src/Command/Nick.cpp\
+	src/Command/Notice.cpp\
+	src/Command/Pass.cpp\
 	src/Command/Ping.cpp\
-	src/Command/Nick.cpp
+	src/Command/Pong.cpp\
+	src/Command/PrivMsg.cpp\
+	src/Command/Quit.cpp\
+	src/Command/User.cpp\
+
 
 OBJ = $(SRC:.cpp=.o)
 INCLUDES = -I ./includes

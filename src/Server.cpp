@@ -140,6 +140,13 @@ void Server::run() {
 			if (FD_ISSET(fd, &readfds)) {
 				if (!recvFromClient(fd)) {
 					close(fd);
+					_pendingDisconnect.erase(fd);
+					_clients.erase(it++);
+					continue;
+				}
+				if (_pendingDisconnect.count(fd)) {
+					close(fd);
+					_pendingDisconnect.erase(fd);
 					_clients.erase(it++);
 					continue;
 				}
@@ -288,9 +295,14 @@ void Server::sendToClient(int fd, const std::string &msg) const
 
 void Server::initCommands()
 {
+	_commands["PASS"] = new Pass();
 	_commands["NICK"] = new Nick();
-    _commands["PING"] = new Ping();
-
+	_commands["USER"] = new User();
+	_commands["PING"] = new Ping();
+	_commands["PONG"] = new Pong();
+	_commands["PRIVMSG"] = new PrivMsg();
+	_commands["NOTICE"] = new Notice();
+	_commands["QUIT"] = new Quit();
 }
 
 void Server::destroyCommands()
@@ -312,21 +324,19 @@ void Server::dispatchCommand(int fd, Client &client, const IrcMessage &msg) {
 	it->second->run(*this, fd, client, msg);
 }
 
-void Server::sendError(int fd, int errorCode, std::string param) const {
+void Server::sendError(int fd, int code, const std::string &param) const {
 	std::map<int, Client>::const_iterator it;
     std::string target;
     std::string line;
-    std::string code;
 
     target = "*";
     it = _clients.find(fd);
     if (it != _clients.end() && !it->second.getNickname().empty())
         target = it->second.getNickname();
 
-    code = numeric3(errorCode);
-    line = ":" + serverName() + " " + code + " " + target;
+    line = ":" + serverName() + " " + numeric3(code) + " " + target;
 
-    switch (errorCode) {
+    switch (code) {
         case ERR_UNKNOWNCOMMAND:
             line += " " + param + " :Unknown command";
             break;
@@ -339,6 +349,27 @@ void Server::sendError(int fd, int errorCode, std::string param) const {
         case ERR_NICKNAMEINUSE:
             line += " " + param + " :Nickname is already in use";
             break;
+		case ERR_NOTREGISTERED:
+			line += ":You have not registered";
+			break;
+		case ERR_NEEDMOREPARAMS:
+			line += param + " :Not enough parameters";
+			break;
+		case ERR_ALREADYREGISTRED:
+			line += ":You may not reregister";
+			break;
+		case ERR_PASSWDMISMATCH:
+			line += ":Password incorrect";
+			break;
+		case ERR_NOSUCHNICK:
+			line += param + " :No such nick";
+			break;
+		case ERR_NORECIPIENT:
+			line += ":No recipient given (" + param + ")";
+			break;
+		case ERR_NOTEXTTOSEND:
+			line += ":No text to send";
+			break;
         default:
             line += " :Unknown error";
             break;
@@ -353,4 +384,50 @@ bool Server::isNickTaken(const std::string &nickname, int exceptFd) const
             return true;
     }
     return false;
+}
+
+std::string Server::getServerName() const { 
+	return "irc42"; 
+}
+
+bool Server::passwordRequired() const { 
+	return !_password.empty(); 
+}
+const std::string &Server::getPassword() const { 
+	return _password; 
+}
+
+void Server::scheduleDisconnect(int fd) { 
+	_pendingDisconnect.insert(fd); 
+}
+
+int Server::findClientFdByNick(const std::string &nickname) const {
+    for (std::map<int, Client>::const_iterator it = _clients.begin(); it != _clients.end(); ++it) {
+        if (it->second.getNickname() == nickname)
+            return it->first;
+    }
+    return -1;
+}
+
+bool Server::isRegistered(const Client &c) const { return c.isRegistered(); }
+
+void Server::tryRegister(int fd, Client &client)
+{
+    std::string nick;
+    std::string line;
+
+    if (client.isRegistered())
+        return;
+    if (passwordRequired() && !client.hasPass())
+        return;
+    if (!client.hasNick() || !client.hasUser())
+        return;
+
+    client.setRegistered(true);
+
+    nick = client.getNickname();
+    sendToClient(fd, ":" + getServerName() + " 001 " + nick + " :Welcome to the IRC server " + nick);
+    sendToClient(fd, ":" + getServerName() + " 002 " + nick + " :Your host is " + getServerName());
+    sendToClient(fd, ":" + getServerName() + " 003 " + nick + " :This server was created just now");
+    sendToClient(fd, ":" + getServerName() + " 004 " + nick + " " + getServerName() + " 1.0 o o");
 }

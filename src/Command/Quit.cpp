@@ -1,10 +1,14 @@
 #include "../../includes/Command.hpp"
+#include "../../includes/Server.hpp"
+#include "../../includes/Client.hpp"
 
-Quit::Quit() : Command("QUIT") {
-    std::cout << "QUIT command initialized." << std::endl
-    << "Allows a user to disconnect from the server." << std::endl; // To be deleted
-}
+Quit::Quit() : Command("QUIT") {}
+Quit::~Quit() {}
 
-Quit::~Quit() {
-    std::cout << "QUIT command destroyed." << std::endl; // To be deleted
+bool Quit::requiresRegistration() const { return false; }
+
+void Quit::execute(Server &server, int fd, Client &client, const IrcMessage &msg)
+{
+    (void)client; (void)msg;
+    server.scheduleDisconnect(fd);
 }

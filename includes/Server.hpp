@@ -6,6 +6,7 @@
 #include <csignal>
 #include <map>
 #include <vector>
+#include <set>
 
 class Client;
 class Command;
@@ -24,6 +25,7 @@ class Server {
 		int								_listenFd;
 		std::map<int, Client>			_clients;
 		std::map<std::string, Command*> _commands;
+		std::set<int> 					_pendingDisconnect;
 
 		Server(const Server& other);
 		void acceptClient(int cfd, const std::string& ip, int port);
@@ -40,11 +42,18 @@ class Server {
 		void run();
 		void handleLine(int fd, const std::string &line);
 		void dispatchCommand(int fd, Client &client, const IrcMessage &msg);
-		void sendError(int fd, int code, std::string param) const;
+		void sendError(int fd, int code, const std::string &param) const;
 
 		void sendToClient(int fd, const std::string &msg) const;
 		bool isRegistered(const Client &c) const;
 		bool isNickTaken(const std::string &nickname, int exceptFd) const;
+
+		std::string getServerName() const;
+		bool passwordRequired() const;
+		const std::string& getPassword() const;
+		void tryRegister(int fd, Client &client);
+		void scheduleDisconnect(int fd);
+		int findClientFdByNick(const std::string &nickname) const;
 };
 
 
