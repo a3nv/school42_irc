@@ -6,6 +6,7 @@ SRC = src/main.cpp\
 	src/Server.cpp\
 	src/Client.cpp\
 	src/Signal.cpp\
+	src/Channel.cpp\
 	src/Command/Command.cpp\
 	src/Command/Nick.cpp\
 	src/Command/Notice.cpp\
@@ -15,6 +16,10 @@ SRC = src/main.cpp\
 	src/Command/PrivMsg.cpp\
 	src/Command/Quit.cpp\
 	src/Command/User.cpp\
+	src/Command/Cap.cpp\
+	src/Command/Join.cpp\
+	src/Command/Part.cpp\
+	src/Command/Names.cpp\
 
 
 OBJ = $(SRC:.cpp=.o)

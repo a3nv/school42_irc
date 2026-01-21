@@ -14,7 +14,8 @@ Client::Client()
       _hasPass(false),
       _hasNick(false),
       _hasUser(false),
-      _registered(false)
+      _registered(false),
+      _channels()
 {
 }
 
@@ -29,7 +30,8 @@ Client::Client(int fd, int port, const std::string& ip)
       _hasPass(false),
       _hasNick(false),
       _hasUser(false),
-      _registered(false)
+      _registered(false),
+      _channels()
 {
 }
 
@@ -74,5 +76,25 @@ bool Client::hasUser() const { return _hasUser; }
 
 void Client::setRegistered(bool v) { _registered = v; }
 bool Client::isRegistered() const { return _registered; }
+
+void Client::joinChannel(const std::string &name)
+{
+    _channels.insert(name);
+}
+
+void Client::partChannel(const std::string &name)
+{
+    _channels.erase(name);
+}
+
+bool Client::isInChannel(const std::string &name) const
+{
+    return _channels.count(name) != 0;
+}
+
+const std::set<std::string> &Client::getChannels() const
+{
+    return _channels;
+}
 
 size_t Client::inbufSize() const { return _inbuf.size(); }

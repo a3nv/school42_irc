@@ -2,6 +2,7 @@
 #define SERVER_HPP
 
 #include "IrcNumeric.hpp"
+#include "Channel.hpp"
 #include <string>
 #include <csignal>
 #include <map>
@@ -26,6 +27,7 @@ class Server {
 		std::map<int, Client>			_clients;
 		std::map<std::string, Command*> _commands;
 		std::set<int> 					_pendingDisconnect;
+		std::map<std::string, Channel> _channels;
 
 		Server(const Server& other);
 		void acceptClient(int cfd, const std::string& ip, int port);
@@ -54,6 +56,18 @@ class Server {
 		void tryRegister(int fd, Client &client);
 		void scheduleDisconnect(int fd);
 		int findClientFdByNick(const std::string &nickname) const;
+
+		// Channel
+		static std::string normalizeChanKey(const std::string &name);
+		bool channelExists(const std::string &key) const;
+		bool isClientInChannel(const std::string &key, int fd) const;
+		void joinChannel(const std::string &key, const std::string &displayName, int fd);
+		void partChannel(const std::string &key, int fd);
+		void removeFromAllChannels(int fd);
+		void sendToChannel(const std::string &key, const std::string &line, int exceptFd) const;
+		std::string getChannelDisplayName(const std::string &key) const;
+		std::string getChannelDisplayNameOrRaw(const std::string &key, const std::string &raw) const;
+		void sendNamesReply(int fd, const Client &requester, const std::string &key) const;
 };
 
 

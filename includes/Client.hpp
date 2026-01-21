@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <iostream>
 #include <string>
+#include <set>
 
 class Client {
 	private:
@@ -23,6 +24,8 @@ class Client {
 		bool _hasNick;
 		bool _hasUser;
 		bool _registered;
+
+		std::set<std::string> _channels;
 
 	public:
 		Client();
@@ -56,6 +59,11 @@ class Client {
 
 		void setRegistered(bool v);
 		bool isRegistered() const;
+
+		void joinChannel(const std::string &name);
+		void partChannel(const std::string &name);
+		bool isInChannel(const std::string &name) const;
+		const std::set<std::string> &getChannels() const;
 
 		size_t inbufSize() const;
 };

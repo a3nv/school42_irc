@@ -1,10 +1,58 @@
 #include "../../includes/Command.hpp"
+#include "../../includes/Server.hpp"
+#include "../../includes/Client.hpp"
 
-Join::Join() : Command("JOIN") {
-    std::cout << "JOIN command initialized." << std::endl
-    << "Allows a user to join a specified channel." << std::endl; // To be deleted
+static std::string buildPrefix(const Client &c)
+{
+    std::string user;
+    std::string host;
+
+    user = c.getName();
+    if (user.empty())
+        user = "user";
+    host = c.getIp();
+    if (host.empty())
+        host = "localhost";
+    return c.getNickname() + "!" + user + "@" + host;
 }
 
-Join::~Join() {
-    std::cout << "JOIN command destroyed." << std::endl; // To be deleted
+static std::string firstFromCommaList(const std::string &s)
+{
+    size_t pos;
+
+    pos = s.find(',');
+    if (pos == std::string::npos)
+        return s;
+    return s.substr(0, pos);
+}
+
+Join::Join() : Command("JOIN") {}
+Join::~Join() {}
+
+void Join::execute(Server &server, int fd, Client &client, const IrcMessage &msg)
+{
+    std::string chan;
+    std::string key;
+    std::string joinLine;
+
+    if (msg.params.empty()) {
+        server.sendError(fd, ERR_NEEDMOREPARAMS, "JOIN");
+        return;
+    }
+    chan = firstFromCommaList(msg.params[0]);
+    if (chan.empty() || chan[0] != '#') {
+        server.sendError(fd, ERR_NOSUCHCHANNEL, chan);
+        return;
+    }
+
+    key = Server::normalizeChanKey(chan);
+    if (server.isClientInChannel(key, fd))
+        return;
+
+    server.joinChannel(key, chan, fd);
+    client.joinChannel(key);
+
+    joinLine = ":" + buildPrefix(client) + " JOIN :" + server.getChannelDisplayName(key);
+    server.sendToChannel(key, joinLine, -1);
+    server.sendNamesReply(fd, client, key);
 }

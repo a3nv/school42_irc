@@ -66,6 +66,16 @@ protected:
     virtual void execute(Server &server, int fd, Client &client, const IrcMessage &msg);
 };
 
+class Cap : public Command {
+public:
+    Cap();
+    virtual ~Cap();
+protected:
+    virtual bool requiresRegistration() const;
+    virtual void execute(Server &server, int fd, Client &client, const IrcMessage &msg);
+};
+
+
 //--------------------Messaging--------------------
 
 // PRIVMSG Command derived class
@@ -88,16 +98,28 @@ protected:
 //--------------------CHANNEL--------------------
 // JOIN Command derived class
 class Join : public Command {
-    public:
-        Join();
-        ~Join();
+public:
+    Join();
+    virtual ~Join();
+protected:
+    virtual void execute(Server &server, int fd, Client &client, const IrcMessage &msg);
 };
 
 // PART Command derived class
 class Part : public Command {
-    public:
-        Part();
-        ~Part();
+public:
+    Part();
+    virtual ~Part();
+protected:
+    virtual void execute(Server &server, int fd, Client &client, const IrcMessage &msg);
+};
+
+class Names : public Command {
+public:
+    Names();
+    virtual ~Names();
+protected:
+    virtual void execute(Server &server, int fd, Client &client, const IrcMessage &msg);
 };
 
 //--------------------DISCONNECT---------------------

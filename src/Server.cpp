@@ -139,12 +139,14 @@ void Server::run() {
 
 			if (FD_ISSET(fd, &readfds)) {
 				if (!recvFromClient(fd)) {
+					removeFromAllChannels(fd);
 					close(fd);
 					_pendingDisconnect.erase(fd);
 					_clients.erase(it++);
 					continue;
 				}
 				if (_pendingDisconnect.count(fd)) {
+					removeFromAllChannels(fd);
 					close(fd);
 					_pendingDisconnect.erase(fd);
 					_clients.erase(it++);
@@ -182,6 +184,8 @@ bool Server::recvFromClient(int fd) {
 	}
 	while (it->second.extractLine(line)) {
 		handleLine(fd, line);
+		if (_pendingDisconnect.count(fd))
+			break;
 	}
 	return true;
 }
@@ -189,6 +193,9 @@ bool Server::recvFromClient(int fd) {
 // Accept a new client and add to the clients map
 void Server::acceptClient(int cfd, const std::string& ip, int port) {
 	this->_clients.insert(std::make_pair(cfd, Client(cfd, port, ip)));
+	sendToClient(cfd, "NOTICE AUTH :*** Looking up your hostname...");
+	sendToClient(cfd, "NOTICE AUTH :*** Checking ident...");
+	sendToClient(cfd, "NOTICE AUTH :*** Welcome! Please register with PASS/NICK/USER");
 }
 
 void Server::cleanup() {
@@ -197,6 +204,7 @@ void Server::cleanup() {
 		close(it->first);
 	}
 	_clients.clear();
+	_channels.clear();
 	if (_listenFd != -1) {
 		close(_listenFd);
 		_listenFd = -1;
@@ -302,6 +310,9 @@ void Server::initCommands()
 	_commands["PONG"] = new Pong();
 	_commands["PRIVMSG"] = new PrivMsg();
 	_commands["NOTICE"] = new Notice();
+	_commands["JOIN"] = new Join();
+	_commands["PART"] = new Part();
+	_commands["NAMES"] = new Names();
 	_commands["QUIT"] = new Quit();
 }
 
@@ -350,25 +361,34 @@ void Server::sendError(int fd, int code, const std::string &param) const {
             line += " " + param + " :Nickname is already in use";
             break;
 		case ERR_NOTREGISTERED:
-			line += ":You have not registered";
+			line += " :You have not registered";
 			break;
 		case ERR_NEEDMOREPARAMS:
-			line += param + " :Not enough parameters";
+			line += " " + param + " :Not enough parameters";
 			break;
 		case ERR_ALREADYREGISTRED:
-			line += ":You may not reregister";
+			line += " :You may not reregister";
 			break;
 		case ERR_PASSWDMISMATCH:
-			line += ":Password incorrect";
+			line += " :Password incorrect";
 			break;
 		case ERR_NOSUCHNICK:
-			line += param + " :No such nick";
+			line += " " + param + " :No such nick";
 			break;
 		case ERR_NORECIPIENT:
-			line += ":No recipient given (" + param + ")";
+			line += " :No recipient given (" + param + ")";
 			break;
 		case ERR_NOTEXTTOSEND:
-			line += ":No text to send";
+			line += " :No text to send";
+			break;
+		case ERR_NOSUCHCHANNEL:
+			line += " " + param + " :No such channel";
+			break;
+		case ERR_CANNOTSENDTOCHAN:
+			line += " " + param + " :Cannot send to channel";
+			break;
+		case ERR_NOTONCHANNEL:
+			line += " " + param + " :You're not on that channel";
 			break;
         default:
             line += " :Unknown error";
@@ -430,4 +450,155 @@ void Server::tryRegister(int fd, Client &client)
     sendToClient(fd, ":" + getServerName() + " 002 " + nick + " :Your host is " + getServerName());
     sendToClient(fd, ":" + getServerName() + " 003 " + nick + " :This server was created just now");
     sendToClient(fd, ":" + getServerName() + " 004 " + nick + " " + getServerName() + " 1.0 o o");
+}
+
+static char foldRfc1459Char(char c)
+{
+    unsigned char uc;
+
+    uc = static_cast<unsigned char>(c);
+    if (uc >= 'A' && uc <= 'Z')
+        return static_cast<char>(uc - 'A' + 'a');
+    if (c == '[')
+        return '{';
+    if (c == ']')
+        return '}';
+    if (c == '\\')
+        return '|';
+    if (c == '^')
+        return '~';
+    return c;
+}
+
+std::string Server::normalizeChanKey(const std::string &name)
+{
+    std::string out;
+    size_t i;
+
+    out.reserve(name.size());
+    i = 0;
+    while (i < name.size()) {
+        out.push_back(foldRfc1459Char(name[i]));
+        ++i;
+    }
+    return out;
+}
+
+bool Server::channelExists(const std::string &key) const
+{
+    return _channels.find(key) != _channels.end();
+}
+
+bool Server::isClientInChannel(const std::string &key, int fd) const
+{
+    std::map<std::string, Channel>::const_iterator it;
+
+    it = _channels.find(key);
+    if (it == _channels.end())
+        return false;
+    return it->second.hasMember(fd);
+}
+
+void Server::joinChannel(const std::string &key, const std::string &displayName, int fd)
+{
+    std::map<std::string, Channel>::iterator it;
+
+    it = _channels.find(key);
+    if (it == _channels.end())
+        it = _channels.insert(std::make_pair(key, Channel(displayName))).first;
+    it->second.addMember(fd);
+}
+
+void Server::partChannel(const std::string &key, int fd)
+{
+    std::map<std::string, Channel>::iterator it;
+
+    it = _channels.find(key);
+    if (it == _channels.end())
+        return;
+    it->second.removeMember(fd);
+    if (it->second.empty())
+        _channels.erase(it);
+}
+
+void Server::removeFromAllChannels(int fd)
+{
+    std::map<int, Client>::iterator cit;
+    std::vector<std::string> keys;
+    std::set<std::string>::const_iterator it;
+
+    cit = _clients.find(fd);
+    if (cit == _clients.end())
+        return;
+    for (it = cit->second.getChannels().begin(); it != cit->second.getChannels().end(); ++it)
+        keys.push_back(*it);
+    for (size_t i = 0; i < keys.size(); ++i) {
+        partChannel(keys[i], fd);
+        cit->second.partChannel(keys[i]);
+    }
+}
+
+void Server::sendToChannel(const std::string &key, const std::string &line, int exceptFd) const
+{
+    std::map<std::string, Channel>::const_iterator it;
+    std::set<int>::const_iterator mit;
+
+    it = _channels.find(key);
+    if (it == _channels.end())
+        return;
+    for (mit = it->second.members().begin(); mit != it->second.members().end(); ++mit) {
+        if (*mit == exceptFd)
+            continue;
+        sendToClient(*mit, line);
+    }
+}
+
+std::string Server::getChannelDisplayName(const std::string &key) const
+{
+    std::map<std::string, Channel>::const_iterator it;
+
+    it = _channels.find(key);
+    if (it == _channels.end())
+        return key;
+    return it->second.name();
+}
+
+std::string Server::getChannelDisplayNameOrRaw(const std::string &key, const std::string &raw) const
+{
+    std::map<std::string, Channel>::const_iterator it;
+
+    it = _channels.find(key);
+    if (it == _channels.end())
+        return raw;
+    return it->second.name();
+}
+
+void Server::sendNamesReply(int fd, const Client &requester, const std::string &key) const
+{
+    std::map<std::string, Channel>::const_iterator it;
+    std::set<int>::const_iterator mit;
+    std::string nick;
+    std::string chan;
+    std::string names;
+
+    it = _channels.find(key);
+    if (it == _channels.end())
+        return;
+
+    nick = requester.getNickname();
+    if (nick.empty())
+        nick = "*";
+    chan = it->second.name();
+
+    for (mit = it->second.members().begin(); mit != it->second.members().end(); ++mit) {
+        std::map<int, Client>::const_iterator cit = _clients.find(*mit);
+        if (cit == _clients.end())
+            continue;
+        if (!names.empty())
+            names += " ";
+        names += cit->second.getNickname();
+    }
+
+    sendToClient(fd, ":" + getServerName() + " " + numeric3(RPL_NAMREPLY) + " " + nick + " = " + chan + " :" + names);
+    sendToClient(fd, ":" + getServerName() + " " + numeric3(RPL_ENDOFNAMES) + " " + nick + " " + chan + " :End of /NAMES list.");
 }
