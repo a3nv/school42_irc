@@ -279,6 +279,13 @@ void Server::handleNick(int fd, const IrcMessage &msg) {
 	newNickCommand.execute(*this, const_cast<IrcMessage&>(msg), fd);
 
 	_clients[fd].setNickname(newNick);
+	if (_clients[fd].isRegistered() == false) {
+		_clients[fd].tryRegisterClient();
+		if (_clients[fd].isRegistered()) {
+			// Send welcome message
+			std::cout << "Client fd " << fd << " registered successfully." << std::endl;
+		}
+	}
 	std::cout << "Client fd " << fd << " set nickname to " << newNick << std::endl;
 	
 }
@@ -289,9 +296,21 @@ bool Server::uniqueNickname(const std::string& nickname, int fd) const{
 			return false; // Nickname already in use
 		}
 	}
-	return true; // Nickname is unique
+	return true;
 }
 
+// --------------Handle USER command-----------------
+
+void Server::handleUser(int fd, const IrcMessage &msg) {
+	if (_clients[fd].isRegistered()) {
+		sendError(fd, ERR_USERISREGISTERED, "");
+		return;
+	}
+	User newUserCommand;
+	newUserCommand.execute(*this, const_cast<IrcMessage&>(msg), fd);
+}
+
+// --------------Error Handling-----------------
 void Server::sendError(int fd, int errorCode, std::string param) const{
 	std::string errorMsg;
 	switch (errorCode) {
@@ -307,6 +326,12 @@ void Server::sendError(int fd, int errorCode, std::string param) const{
 		case ERR_NICKNAMEINUSE:
 			errorMsg = "433 " + param + " :Nickname is already in use";
 			break;
+		case ERR_USERISREGISTERED:
+			errorMsg = "462 :You may not reregister";
+			break;
+		case ERR_NEEDMOREPARAMS:
+			errorMsg = "461 " + param + " :Not enough parameters";
+			break;	
 		default:
 			errorMsg = "400 :Unknown error";
 			break;

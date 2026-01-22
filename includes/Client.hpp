@@ -10,8 +10,10 @@ class Client {
 		int _port;
 		std::string _ip;
 		std::string _name;
+		std::string _username;
 		std::string _nickname;
 		std::string _inbuf;
+		bool _registered;
 	public:
 		Client();
 		Client(int fd, int port, const std::string& ip);
@@ -23,10 +25,14 @@ class Client {
 		int getFd() const;
 		int getPort() const;
 		std::string getIp() const;
-		void setName(const std::string& name);
 		std::string getName() const;
-		void setNickname(const std::string& nickname);
 		std::string getNickname() const;
+		std::string getUsername() const;
+		void setName(const std::string& name);
+		void setNickname(const std::string& nickname);
+		void setUsername(const std::string& username);
+		bool tryRegisterClient();
+		bool isRegistered() const;
 		size_t inbufSize() const;
 };
 

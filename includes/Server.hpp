@@ -32,7 +32,6 @@ class Server {
 		~Server();
 
 		const std::map<int, Client>& getClients() const;
-		int getClientFd(const Client& client) const; 
 		bool recvFromClient(int fd);
 		void cleanup();
 		void run();
@@ -43,7 +42,7 @@ class Server {
 	// Command handlers	
 		void handleNick(int fd, const IrcMessage &msg);
 		bool uniqueNickname(const std::string& nickname, int fd) const;
-
+		void handleUser(int fd, const IrcMessage &msg);
 };
 
 

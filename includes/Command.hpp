@@ -33,6 +33,7 @@ class User : public Command {
     public:
         User();
         ~User();
+        bool User::execute(Server& server, IrcMessage& message, int fd);
 };
 
 // PASS Command derived class

@@ -26,14 +26,23 @@ bool Client::extractLine(std::string &line) {
 	return true;
 }
 
+bool Client::tryRegisterClient(){
+	if (!_nickname.empty() && !_username.empty() && !_name.empty()) {
+		this->_registered = true;
+	}
+	return this->_registered;
+}
+
 int Client::getFd() const { return _fd;}
 int Client::getPort() const { return _port;}
 std::string Client::getIp() const { return _ip;}
-void Client::setName(const std::string& name) {_name = name;}
 std::string Client::getName() const { return _name;}
-void Client::setNickname(const std::string& nickname) {_nickname = nickname;}
 std::string Client::getNickname() const { return _nickname;}
-
+std::string Client::getUsername() const { return _username;}
+bool Client::isRegistered() const { return _registered;}
+void Client::setName(const std::string& name) {_name = name;}
+void Client::setNickname(const std::string& nickname) {_nickname = nickname;}
+void Client::setUsername(const std::string& username) {_username = username;}
 size_t Client::inbufSize() const {
 	return _inbuf.size();
 }
