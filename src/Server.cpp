@@ -7,7 +7,6 @@
 #include <sstream>
 #include <stdexcept>
 #include <cstring>
-#include <csignal>
 #include <cerrno>
 #include <cctype>
 #include <iomanip>
@@ -16,39 +15,302 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <unistd.h>
+#include <fcntl.h>
 #include <stdio.h>
 
-static bool endsWithCRLF(const std::string &s)
-{
-    if (s.size() < 2)
-        return false;
-    return (s[s.size() - 2] == '\r' && s[s.size() - 1] == '\n');
+// ---------------- helpers ----------------
+
+static bool endsWithCRLF(const std::string &s) {
+	if (s.size() < 2)
+		return false;
+	return (s[s.size() - 2] == '\r' && s[s.size() - 1] == '\n');
 }
 
-static std::string numeric3(int code)
-{
-    std::ostringstream oss;
-    oss << std::setw(3) << std::setfill('0') << code;
-    return oss.str();
+static void uppercaseCommand(std::string &s) {
+	for (size_t i = 0; i < s.size(); ++i) {
+		unsigned char c = static_cast<unsigned char>(s[i]);
+		s[i] = static_cast<char>(std::toupper(c));
+	}
 }
 
-static std::string serverName()
-{
-    return "irc42";
+static void skipSpaces(const std::string &s, size_t &i) {
+	while (i < s.size() && s[i] == ' ')
+		++i;
 }
 
-Server::Server(int port, const std::string& password)
-	: _port(port), _password(password), _listenFd(-1) {
+static std::string readToken(const std::string &s, size_t &i) {
+	size_t start = i;
+	while (i < s.size() && s[i] != ' ')
+		++i;
+	return s.substr(start, i - start);
+}
+
+static std::string stripCRLF(const std::string &s) {
+	if (!s.empty() && s[s.size() - 1] == '\n') {
+		std::string t = s.substr(0, s.size() - 1);
+		if (!t.empty() && t[t.size() - 1] == '\r')
+			t.erase(t.size() - 1);
+		return t;
+	}
+	if (!s.empty() && s[s.size() - 1] == '\r')
+		return s.substr(0, s.size() - 1);
+	return s;
+}
+
+// ---------------- Server ----------------
+
+Server::Server(int port, const std::string &password)
+	: _port(port), _password(password), _listenFd(-1), _clients(), _commands(), _pendingDisconnect(), _channels() {
 		initCommands();
 	}
 
 Server::~Server() {
 	destroyCommands();
-	cleanup();
+	if (_listenFd >= 0)
+		close(_listenFd);
 }
 
-const std::map<int, Client>& Server::getClients() const {
-	return _clients;
+const std::map<int, Client> &Server::getClients() const { return _clients; }
+
+int Server::getClientFd(const Client &client) const { return client.getFd(); }
+
+bool Server::setNonBlocking(int fd) {
+	int flags = fcntl(fd, F_GETFL, 0);
+	if (flags < 0)
+		return false;
+	if (fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0)
+		return false;
+	return true;
+}
+
+std::string Server::getServerName() const { return "irc42"; }
+bool Server::passwordRequired() const { return !_password.empty(); }
+const std::string &Server::getPassword() const { return _password; }
+
+bool Server::isRegistered(const Client &c) const { return c.isRegistered(); }
+
+void Server::scheduleDisconnect(int fd) {
+	_pendingDisconnect.insert(fd);
+}
+
+// RFC1459 casemapping fold for nicks/channels: A-Z -> a-z, []\^ -> {}|~
+std::string Server::normalizeName(const std::string &s) {
+	std::string out;
+	out.reserve(s.size());
+	for (size_t i = 0; i < s.size(); ++i) {
+		unsigned char c = static_cast<unsigned char>(s[i]);
+		if (c >= 'A' && c <= 'Z')
+			out.push_back(static_cast<char>(c + 32));
+		else if (c == '[') out.push_back('{');
+		else if (c == ']') out.push_back('}');
+		else if (c == '\\') out.push_back('|');
+		else if (c == '^') out.push_back('~');
+		else out.push_back(static_cast<char>(c));
+	}
+	return out;
+}
+
+std::string Server::normalizeChanKey(const std::string &chan) const {
+	return normalizeName(chan);
+}
+
+bool Server::isNickTaken(const std::string &nickname, int exceptFd) const {
+	std::string key = normalizeName(nickname);
+	for (std::map<int, Client>::const_iterator it = _clients.begin(); it != _clients.end(); ++it) {
+		if (it->first == exceptFd)
+			continue;
+		if (normalizeName(it->second.getNickname()) == key)
+			return true;
+	}
+	return false;
+}
+
+int Server::findClientFdByNick(const std::string &nickname) const {
+	std::string key = normalizeName(nickname);
+	for (std::map<int, Client>::const_iterator it = _clients.begin(); it != _clients.end(); ++it) {
+		if (normalizeName(it->second.getNickname()) == key)
+			return it->first;
+	}
+	return -1;
+}
+
+std::string Server::makePrefix(const Client &c) const {
+	std::string user = c.getName().empty() ? "user" : c.getName();
+	std::string host = c.getIp().empty() ? "localhost" : c.getIp();
+	return c.getNickname() + "!" + user + "@" + host;
+}
+
+void Server::sendToClient(int fd, const std::string &msg) {
+	std::map<int, Client>::iterator it = _clients.find(fd);
+	if (it == _clients.end())
+		return;
+
+	std::string out = msg;
+	if (!endsWithCRLF(out))
+		out += "\r\n";
+	it->second.appendOutput(out);
+}
+
+bool Server::flushClientOutput(int fd) {
+	std::map<int, Client>::iterator it = _clients.find(fd);
+	if (it == _clients.end())
+		return false;
+
+	Client &c = it->second;
+	while (c.hasOutput()) {
+		const std::string &buf = c.outbuf();
+		ssize_t n = ::send(fd, buf.c_str(), buf.size(), 0);
+		if (n > 0) {
+			c.consumeOutput(static_cast<size_t>(n));
+			continue;
+		}
+		if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))
+			return true;
+		return false;
+	}
+	return true;
+}
+
+void Server::sendNumeric(int fd, int code, const std::vector<std::string> &params, const std::string &trailing) {
+	std::ostringstream oss;
+	oss << ":" << getServerName() << " ";
+	oss << std::setw(3) << std::setfill('0') << code;
+
+	std::string nick = "*";
+	std::map<int, Client>::iterator it = _clients.find(fd);
+	if (it != _clients.end() && !it->second.getNickname().empty())
+		nick = it->second.getNickname();
+
+	oss << " " << nick;
+	for (size_t i = 0; i < params.size(); ++i)
+		oss << " " << params[i];
+	if (!trailing.empty())
+		oss << " :" << trailing;
+
+	sendToClient(fd, oss.str());
+}
+
+void Server::sendError(int fd, int code, const std::string &param) {
+	if (code == ERR_NOTREGISTERED) {
+		sendNumeric(fd, code, std::vector<std::string>(), "You have not registered");
+		return;
+	}
+	if (code == ERR_NEEDMOREPARAMS) {
+		std::vector<std::string> p(1, param);
+		sendNumeric(fd, code, p, "Not enough parameters");
+		return;
+	}
+	if (code == ERR_ALREADYREGISTRED) {
+		sendNumeric(fd, code, std::vector<std::string>(), "You may not reregister");
+		return;
+	}
+	if (code == ERR_PASSWDMISMATCH) {
+		sendNumeric(fd, code, std::vector<std::string>(), "Password incorrect");
+		return;
+	}
+	if (code == ERR_NOSUCHNICK) {
+		std::vector<std::string> p(1, param);
+		sendNumeric(fd, code, p, "No such nick");
+		return;
+	}
+	if (code == ERR_NOSUCHCHANNEL) {
+		std::vector<std::string> p(1, param);
+		sendNumeric(fd, code, p, "No such channel");
+		return;
+	}
+	if (code == ERR_CANNOTSENDTOCHAN) {
+		std::vector<std::string> p(1, param);
+		sendNumeric(fd, code, p, "Cannot send to channel");
+		return;
+	}
+	if (code == ERR_NOTONCHANNEL) {
+		std::vector<std::string> p(1, param);
+		sendNumeric(fd, code, p, "You're not on that channel");
+		return;
+	}
+	if (code == ERR_USERNOTINCHANNEL) {
+		// param format: "<nick> <channel>"
+		std::vector<std::string> p;
+		std::istringstream iss(param);
+		std::string nick, chan;
+		iss >> nick >> chan;
+		p.push_back(nick);
+		p.push_back(chan);
+		sendNumeric(fd, code, p, "They aren't on that channel");
+		return;
+	}
+	if (code == ERR_NORECIPIENT) {
+		sendNumeric(fd, code, std::vector<std::string>(), "No recipient given (" + param + ")");
+		return;
+	}
+	if (code == ERR_NOTEXTTOSEND) {
+		sendNumeric(fd, code, std::vector<std::string>(), "No text to send");
+		return;
+	}
+	if (code == ERR_CHANOPRIVSNEEDED) {
+		std::vector<std::string> p(1, param);
+		sendNumeric(fd, code, p, "You're not channel operator");
+		return;
+	}
+	if (code == ERR_CHANNELISFULL) {
+		std::vector<std::string> p(1, param);
+		sendNumeric(fd, code, p, "Cannot join channel (+l)");
+		return;
+	}
+	if (code == ERR_INVITEONLYCHAN) {
+		std::vector<std::string> p(1, param);
+		sendNumeric(fd, code, p, "Cannot join channel (+i)");
+		return;
+	}
+	if (code == ERR_BADCHANNELKEY) {
+		std::vector<std::string> p(1, param);
+		sendNumeric(fd, code, p, "Cannot join channel (+k)");
+		return;
+	}
+	sendNumeric(fd, code, std::vector<std::string>(), "");
+}
+
+void Server::acceptClient(int cfd, const std::string &ip, int port) {
+	setNonBlocking(cfd);
+	_clients.insert(std::make_pair(cfd, Client(cfd, port, ip)));
+	sendToClient(cfd, "NOTICE AUTH :*** Looking up your hostname...");
+	sendToClient(cfd, "NOTICE AUTH :*** Checking ident...");
+	sendToClient(cfd, "NOTICE AUTH :*** Welcome! Please register with PASS/NICK/USER");
+}
+
+bool Server::recvFromClient(int fd) {
+	char buf[4096];
+	ssize_t n = ::recv(fd, buf, sizeof(buf), 0);
+	if (n == 0)
+		return false;
+	if (n < 0) {
+		if (errno == EAGAIN || errno == EWOULDBLOCK)
+			return true;
+		return false;
+	}
+
+	std::map<int, Client>::iterator it = _clients.find(fd);
+	if (it == _clients.end())
+		return false;
+
+	it->second.appendInput(buf, static_cast<size_t>(n));
+
+	std::string line;
+	while (it->second.extractLine(line)) {
+		handleLine(fd, line);
+		if (_pendingDisconnect.count(fd))
+			break;
+	}
+	return true;
+}
+
+
+void Server::cleanup() {
+	for (std::map<int, Client>::iterator it = _clients.begin(); it != _clients.end(); ++it)
+		close(it->first);
+	_clients.clear();
+	_channels.clear();
+	_pendingDisconnect.clear();
 }
 
 void Server::run() {
@@ -63,12 +325,15 @@ void Server::run() {
 	if (setsockopt(_listenFd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0)
 		throw std::runtime_error("setsockopt(SO_REUSEADDR) failed");
 
+	if (!setNonBlocking(_listenFd))
+		throw std::runtime_error("fcntl(O_NONBLOCK) failed on listen socket");
+
 	std::memset(&addr, 0, sizeof(addr));
 	addr.sin_family = AF_INET;
 	addr.sin_addr.s_addr = htonl(INADDR_ANY);
 	addr.sin_port = htons(static_cast<unsigned short>(_port));
 
-	if (bind(_listenFd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0)
+	if (bind(_listenFd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) < 0)
 		throw std::runtime_error("bind() failed");
 
 	if (listen(_listenFd, 10) < 0)
@@ -77,31 +342,26 @@ void Server::run() {
 	std::cout << "Listening on port " << _port << std::endl;
 
 	fd_set readfds;
+	fd_set writefds;
 	int maxfd;
 
 	while (g_running) {
 		FD_ZERO(&readfds);
+		FD_ZERO(&writefds);
 
-		//Add listening socket
 		FD_SET(_listenFd, &readfds);
 		maxfd = _listenFd;
 
-		//Add all client sockets
-		for (std::map<int, Client>::iterator it = _clients.begin();
-				it != _clients.end();
-				++it)
-		{
+		for (std::map<int, Client>::iterator it = _clients.begin(); it != _clients.end(); ++it) {
 			int fd = it->first;
-			std::cout << "Checking fd: " << fd << std::endl;
-			std::cout << "Current maxfd: " << maxfd << std::endl;
 			FD_SET(fd, &readfds);
+			if (it->second.hasOutput())
+				FD_SET(fd, &writefds);
 			if (fd > maxfd)
 				maxfd = fd;
 		}
 
-		//Call select
-		int activity = select(maxfd + 1, &readfds, NULL, NULL, NULL);
-
+		int activity = select(maxfd + 1, &readfds, &writefds, NULL, NULL);
 		if (activity < 0) {
 			if (errno == EINTR)
 				continue;
@@ -109,49 +369,40 @@ void Server::run() {
 			break;
 		}
 
-		// Check listening socket
 		if (FD_ISSET(_listenFd, &readfds)) {
 			sockaddr_in client;
 			socklen_t len = sizeof(client);
-			int cfd = accept(_listenFd, reinterpret_cast<sockaddr*>(&client), &len);
-			if (cfd < 0) {
-				perror("accept");
-				continue;
+			int cfd = accept(_listenFd, reinterpret_cast<sockaddr *>(&client), &len);
+			if (cfd >= 0) {
+				std::string ip = inet_ntoa(client.sin_addr);
+				int port = ntohs(client.sin_port);
+				acceptClient(cfd, ip, port);
 			}
-
-			std::string ip = inet_ntoa(client.sin_addr);//IP address
-			int port = ntohs(client.sin_port);          //Port number
-			acceptClient(cfd, ip, port);               //Accept the client
-
-			std::cout << "Client connected from "
-				<< ip
-				<< ":" << port
-				<< " (fd: " << cfd << ")"
-				<< std::endl;
-			std::cout << "Total clients: " << _clients.size() << std::endl;
 		}
 
-		//Check client sockets
-		for (std::map<int, Client>::iterator it = _clients.begin();
-				it != _clients.end(); )
-		{
+		for (std::map<int, Client>::iterator it = _clients.begin(); it != _clients.end();) {
 			int fd = it->first;
 
+			bool drop = false;
+
 			if (FD_ISSET(fd, &readfds)) {
-				if (!recvFromClient(fd)) {
-					removeFromAllChannels(fd);
-					close(fd);
-					_pendingDisconnect.erase(fd);
-					_clients.erase(it++);
-					continue;
-				}
-				if (_pendingDisconnect.count(fd)) {
-					removeFromAllChannels(fd);
-					close(fd);
-					_pendingDisconnect.erase(fd);
-					_clients.erase(it++);
-					continue;
-				}
+				if (!recvFromClient(fd))
+					drop = true;
+			}
+			if (!drop && FD_ISSET(fd, &writefds)) {
+				if (!flushClientOutput(fd))
+					drop = true;
+			}
+			if (!drop && _pendingDisconnect.count(fd))
+				drop = true;
+
+			if (drop) {
+				std::string quitMsg = "Client quit";
+				removeClientFromAllChannels(fd, quitMsg);
+				close(fd);
+				_pendingDisconnect.erase(fd);
+				_clients.erase(it++);
+				continue;
 			}
 			++it;
 		}
@@ -160,174 +411,51 @@ void Server::run() {
 	std::cout << "Server is shutting down." << std::endl;
 }
 
-bool Server::recvFromClient(int fd) {
-	char buffer[512];
-	int bytesRead;
-	std::map<int, Client>::iterator it;
-	std::string line;
-	
-	it = _clients.find(fd);
-	if (it == _clients.end())
-		return false;
+// ---------------- Parsing / dispatch ----------------
 
-	bytesRead = recv(fd, buffer, sizeof(buffer), 0);
-	if (bytesRead <= 0) {
-		if (bytesRead < 0)
-			perror("recv");
-		std::cout << "Client disconnected. fd: " << fd << std::endl;
-		return false;
-	}
-	it->second.appendInput(buffer, (size_t) bytesRead);
-	if (it->second.inbufSize() > 8192) {
-		std::cout << "Client input buffer too large. fd: " << fd << std::endl;
-		return false;	
-	}
-	while (it->second.extractLine(line)) {
-		handleLine(fd, line);
-		if (_pendingDisconnect.count(fd))
-			break;
-	}
-	return true;
-}
-
-// Accept a new client and add to the clients map
-void Server::acceptClient(int cfd, const std::string& ip, int port) {
-	this->_clients.insert(std::make_pair(cfd, Client(cfd, port, ip)));
-	sendToClient(cfd, "NOTICE AUTH :*** Looking up your hostname...");
-	sendToClient(cfd, "NOTICE AUTH :*** Checking ident...");
-	sendToClient(cfd, "NOTICE AUTH :*** Welcome! Please register with PASS/NICK/USER");
-}
-
-void Server::cleanup() {
-	for (std::map<int, Client>::iterator it = _clients.begin();
-			it != _clients.end(); ++it) {
-		close(it->first);
-	}
-	_clients.clear();
-	_channels.clear();
-	if (_listenFd != -1) {
-		close(_listenFd);
-		_listenFd = -1;
-	}
-}
-
-static void normalizeCommand(std::string &s) {
-	for (size_t i = 0; i < s.size(); ++i) {
-		unsigned char c = static_cast<unsigned char>(s[i]);
-		s[i] = static_cast<char>(std::toupper(c));
-	}
-}
-
-static void skipSpaces(const std::string &s, size_t &i) {
-	while(i < s.size() && s[i] == ' ')
-		++i;
-}
-
-static std::string readToken(const std::string &s, size_t &i) {
-    size_t start = i;
-    while (i < s.size() && s[i] != ' ')
-        ++i;
-    return s.substr(start, i - start);
-}
-
-static std::string stripCRLF(const std::string &line) {
-    size_t end = line.size();
-    while (end > 0 && (line[end - 1] == '\r' || line[end - 1] == '\n'))
-        --end;
-    return line.substr(0, end);
-}
-
-static bool parse(const std::string &raw, IrcMessage &out) {
-	std::string line = stripCRLF(raw);
-	size_t i = 0;
-	out.prefix.clear();
-	out.command.clear();
-	out.params.clear();
-	skipSpaces(line, i);
-	if (i >= line.size())
-		return false;
-	if (line[i] == ':') {
-		++i;
-		if (i >= line.size())
-			return false;
-		out.prefix = readToken(line, i);
-		skipSpaces(line, i);
-		if (i >= line.size())
-			return false;
-	}
-	out.command = readToken(line, i);
-    if (out.command.empty())
-        return false;
-    normalizeCommand(out.command);
-	while (i < line.size()) {
-        skipSpaces(line, i);
-        if (i >= line.size())
-            break;
-
-        if (line[i] == ':') {
-            out.params.push_back(line.substr(i + 1));
-            break;
-        } else {
-            out.params.push_back(readToken(line, i));
-        }
-    }
-    return true;
-}
-
-void Server::handleLine(int fd, const std::string &line) {
-	IrcMessage msg;
-	std::map<int, Client>::iterator cit;
-	std::cout << "fd " << fd << " LINE: [" << line << "]" << std::endl;
-	if (!parse(line, msg)) {
-		std::cout << "Parse: empty/invalid line\n";
+void Server::handleLine(int fd, const std::string &rawLine) {
+	std::string line = stripCRLF(rawLine);
+	if (line.empty())
 		return;
-	}
-	cit = _clients.find(fd);
+
+	std::map<int, Client>::iterator cit = _clients.find(fd);
 	if (cit == _clients.end())
 		return;
-	for (size_t k = 0; k < msg.params.size(); ++k)
-		std::cout << "ARG[" << k << "]: " << msg.params[k] << "\n";
+
+	IrcMessage msg;
+	size_t i = 0;
+
+	// prefix
+	if (i < line.size() && line[i] == ':') {
+		++i;
+		size_t start = i;
+		while (i < line.size() && line[i] != ' ')
+			++i;
+		msg.prefix = line.substr(start, i - start);
+		skipSpaces(line, i);
+	}
+
+	// command
+	msg.command = readToken(line, i);
+	uppercaseCommand(msg.command);
+	skipSpaces(line, i);
+
+	// params
+	while (i < line.size()) {
+		if (line[i] == ':') {
+			++i;
+			msg.params.push_back(line.substr(i));
+			break;
+		}
+		msg.params.push_back(readToken(line, i));
+		skipSpaces(line, i);
+	}
+
 	dispatchCommand(fd, cit->second, msg);
 }
 
-void Server::sendToClient(int fd, const std::string &msg) const
-{
-    std::string out;
-
-    out = msg;
-    if (!endsWithCRLF(out))
-        out += "\r\n";
-    if (::send(fd, out.c_str(), out.size(), MSG_NOSIGNAL) < 0)
-        perror("send");
-}
-
-void Server::initCommands()
-{
-	_commands["PASS"] = new Pass();
-	_commands["NICK"] = new Nick();
-	_commands["USER"] = new User();
-	_commands["PING"] = new Ping();
-	_commands["PONG"] = new Pong();
-	_commands["PRIVMSG"] = new PrivMsg();
-	_commands["NOTICE"] = new Notice();
-	_commands["JOIN"] = new Join();
-	_commands["PART"] = new Part();
-	_commands["NAMES"] = new Names();
-	_commands["QUIT"] = new Quit();
-}
-
-void Server::destroyCommands()
-{
-    std::map<std::string, Command*>::iterator it;
-
-	for (it = _commands.begin(); it != _commands.end(); ++it)
-        delete it->second;
-    _commands.clear();
-}
-
 void Server::dispatchCommand(int fd, Client &client, const IrcMessage &msg) {
-	std::map<std::string, Command*>::iterator it;
-	it = _commands.find(msg.command);
+	std::map<std::string, Command *>::iterator it = _commands.find(msg.command);
 	if (it == _commands.end()) {
 		sendError(fd, ERR_UNKNOWNCOMMAND, msg.command);
 		return;
@@ -335,270 +463,457 @@ void Server::dispatchCommand(int fd, Client &client, const IrcMessage &msg) {
 	it->second->run(*this, fd, client, msg);
 }
 
-void Server::sendError(int fd, int code, const std::string &param) const {
-	std::map<int, Client>::const_iterator it;
-    std::string target;
-    std::string line;
+// ---------------- registration ----------------
 
-    target = "*";
-    it = _clients.find(fd);
-    if (it != _clients.end() && !it->second.getNickname().empty())
-        target = it->second.getNickname();
+void Server::tryRegister(int fd, Client &client) {
+	if (client.isRegistered())
+		return;
+	if (passwordRequired() && !client.hasPass())
+		return;
+	if (!client.hasNick() || !client.hasUser())
+		return;
 
-    line = ":" + serverName() + " " + numeric3(code) + " " + target;
-
-    switch (code) {
-        case ERR_UNKNOWNCOMMAND:
-            line += " " + param + " :Unknown command";
-            break;
-        case ERR_NONICKNAMEGIVEN:
-            line += " :No nickname given";
-            break;
-        case ERR_ERRONEUSNICKNAME:
-            line += " " + param + " :Erroneous nickname";
-            break;
-        case ERR_NICKNAMEINUSE:
-            line += " " + param + " :Nickname is already in use";
-            break;
-		case ERR_NOTREGISTERED:
-			line += " :You have not registered";
-			break;
-		case ERR_NEEDMOREPARAMS:
-			line += " " + param + " :Not enough parameters";
-			break;
-		case ERR_ALREADYREGISTRED:
-			line += " :You may not reregister";
-			break;
-		case ERR_PASSWDMISMATCH:
-			line += " :Password incorrect";
-			break;
-		case ERR_NOSUCHNICK:
-			line += " " + param + " :No such nick";
-			break;
-		case ERR_NORECIPIENT:
-			line += " :No recipient given (" + param + ")";
-			break;
-		case ERR_NOTEXTTOSEND:
-			line += " :No text to send";
-			break;
-		case ERR_NOSUCHCHANNEL:
-			line += " " + param + " :No such channel";
-			break;
-		case ERR_CANNOTSENDTOCHAN:
-			line += " " + param + " :Cannot send to channel";
-			break;
-		case ERR_NOTONCHANNEL:
-			line += " " + param + " :You're not on that channel";
-			break;
-        default:
-            line += " :Unknown error";
-            break;
-    }
-    sendToClient(fd, line);
+	client.setRegistered(true);
+	sendNumeric(fd, RPL_WELCOME, std::vector<std::string>(),
+	            "Welcome to the Internet Relay Network " + makePrefix(client));
+	sendNumeric(fd, RPL_YOURHOST, std::vector<std::string>(),
+	            "Your host is " + getServerName() + ", running version 0.1");
+	sendNumeric(fd, RPL_CREATED, std::vector<std::string>(), "This server was created today");
+	sendNumeric(fd, RPL_MYINFO, std::vector<std::string>(), getServerName() + " 0.1");
 }
 
-bool Server::isNickTaken(const std::string &nickname, int exceptFd) const
-{
-    for (std::map<int, Client>::const_iterator it = _clients.begin(); it != _clients.end(); ++it) {
-        if (it->first != exceptFd && it->second.getNickname() == nickname)
-            return true;
-    }
-    return false;
+// ---------------- channels core ----------------
+
+bool Server::isChannelName(const std::string &target) const {
+	return !target.empty() && target[0] == '#';
 }
 
-std::string Server::getServerName() const { 
-	return "irc42"; 
+Channel *Server::findChannelByKey(const std::string &key) {
+	std::map<std::string, Channel>::iterator it = _channels.find(key);
+	if (it == _channels.end())
+		return NULL;
+	return &it->second;
 }
 
-bool Server::passwordRequired() const { 
-	return !_password.empty(); 
-}
-const std::string &Server::getPassword() const { 
-	return _password; 
-}
-
-void Server::scheduleDisconnect(int fd) { 
-	_pendingDisconnect.insert(fd); 
-}
-
-int Server::findClientFdByNick(const std::string &nickname) const {
-    for (std::map<int, Client>::const_iterator it = _clients.begin(); it != _clients.end(); ++it) {
-        if (it->second.getNickname() == nickname)
-            return it->first;
-    }
-    return -1;
+Channel &Server::getOrCreateChannel(const std::string &displayName) {
+	std::string key = normalizeChanKey(displayName);
+	std::map<std::string, Channel>::iterator it = _channels.find(key);
+	if (it == _channels.end()) {
+		_channels.insert(std::make_pair(key, Channel(displayName, key)));
+		it = _channels.find(key);
+	}
+	return it->second;
 }
 
-bool Server::isRegistered(const Client &c) const { return c.isRegistered(); }
-
-void Server::tryRegister(int fd, Client &client)
-{
-    std::string nick;
-    std::string line;
-
-    if (client.isRegistered())
-        return;
-    if (passwordRequired() && !client.hasPass())
-        return;
-    if (!client.hasNick() || !client.hasUser())
-        return;
-
-    client.setRegistered(true);
-
-    nick = client.getNickname();
-    sendToClient(fd, ":" + getServerName() + " 001 " + nick + " :Welcome to the IRC server " + nick);
-    sendToClient(fd, ":" + getServerName() + " 002 " + nick + " :Your host is " + getServerName());
-    sendToClient(fd, ":" + getServerName() + " 003 " + nick + " :This server was created just now");
-    sendToClient(fd, ":" + getServerName() + " 004 " + nick + " " + getServerName() + " 1.0 o o");
+void Server::broadcastToChannel(Channel &ch, const std::string &line, int exceptFd) {
+	for (std::set<int>::const_iterator it = ch.members().begin(); it != ch.members().end(); ++it) {
+		int fd = *it;
+		if (fd == exceptFd)
+			continue;
+		sendToClient(fd, line);
+	}
 }
 
-static char foldRfc1459Char(char c)
-{
-    unsigned char uc;
+void Server::removeClientFromAllChannels(int fd, const std::string &quitMsg) {
+	std::map<int, Client>::iterator cit = _clients.find(fd);
+	if (cit == _clients.end())
+		return;
 
-    uc = static_cast<unsigned char>(c);
-    if (uc >= 'A' && uc <= 'Z')
-        return static_cast<char>(uc - 'A' + 'a');
-    if (c == '[')
-        return '{';
-    if (c == ']')
-        return '}';
-    if (c == '\\')
-        return '|';
-    if (c == '^')
-        return '~';
-    return c;
+	Client &c = cit->second;
+	std::set<std::string> keys = c.getChannelKeys();
+
+	for (std::set<std::string>::const_iterator it = keys.begin(); it != keys.end(); ++it) {
+		std::map<std::string, Channel>::iterator chIt = _channels.find(*it);
+		if (chIt == _channels.end())
+			continue;
+
+		Channel &ch = chIt->second;
+		std::string line = ":" + makePrefix(c) + " QUIT :" + quitMsg;
+		broadcastToChannel(ch, line, fd);
+
+		ch.removeMember(fd);
+		c.partChannelKey(*it);
+
+		if (ch.empty())
+			_channels.erase(chIt);
+	}
 }
 
-std::string Server::normalizeChanKey(const std::string &name)
-{
-    std::string out;
-    size_t i;
+void Server::joinChannel(int fd, Client &client, const std::string &chanName, const std::string &keyArg) {
+	if (!isChannelName(chanName)) {
+		sendError(fd, ERR_NOSUCHCHANNEL, chanName);
+		return;
+	}
 
-    out.reserve(name.size());
-    i = 0;
-    while (i < name.size()) {
-        out.push_back(foldRfc1459Char(name[i]));
-        ++i;
-    }
-    return out;
+	Channel &ch = getOrCreateChannel(chanName);
+	std::string key = ch.key();
+
+	if (client.isInChannelKey(key))
+		return;
+
+	if (ch.inviteOnly() && !ch.isInvited(fd)) {
+		sendError(fd, ERR_INVITEONLYCHAN, ch.name());
+		return;
+	}
+	if (ch.hasKey() && ch.keyPassword() != keyArg) {
+		sendError(fd, ERR_BADCHANNELKEY, ch.name());
+		return;
+	}
+	if (ch.hasLimit() && ch.members().size() >= ch.limit()) {
+		sendError(fd, ERR_CHANNELISFULL, ch.name());
+		return;
+	}
+
+	ch.addMember(fd);
+	client.joinChannelKey(key);
+	ch.uninvite(fd);
+
+	if (ch.ops().empty())
+		ch.addOp(fd);
+
+	std::string joinLine = ":" + makePrefix(client) + " JOIN :" + ch.name();
+	broadcastToChannel(ch, joinLine, -1);
+
+	if (ch.hasTopic()) {
+		std::vector<std::string> p;
+		p.push_back(ch.name());
+		sendNumeric(fd, RPL_TOPIC, p, ch.topic());
+	} else {
+		std::vector<std::string> p;
+		p.push_back(ch.name());
+		sendNumeric(fd, RPL_NOTOPIC, p, "No topic is set");
+	}
+	sendNames(fd, client, ch.name());
 }
 
-bool Server::channelExists(const std::string &key) const
-{
-    return _channels.find(key) != _channels.end();
+void Server::partChannel(int fd, Client &client, const std::string &chanName, const std::string &partMsg) {
+	std::string key = normalizeChanKey(chanName);
+	Channel *chp = findChannelByKey(key);
+	if (!chp) {
+		sendError(fd, ERR_NOSUCHCHANNEL, chanName);
+		return;
+	}
+	Channel &ch = *chp;
+	if (!ch.hasMember(fd)) {
+		sendError(fd, ERR_NOTONCHANNEL, ch.name());
+		return;
+	}
+
+	std::string msg = partMsg.empty() ? "Leaving" : partMsg;
+	std::string line = ":" + makePrefix(client) + " PART " + ch.name() + " :" + msg;
+	broadcastToChannel(ch, line, -1);
+
+	ch.removeMember(fd);
+	client.partChannelKey(key);
+
+	if (ch.empty())
+		_channels.erase(key);
 }
 
-bool Server::isClientInChannel(const std::string &key, int fd) const
-{
-    std::map<std::string, Channel>::const_iterator it;
+void Server::sendNames(int fd, Client &client, const std::string &chanName) {
+	(void) client;
+	std::string key = normalizeChanKey(chanName);
+	Channel *chp = findChannelByKey(key);
+	if (!chp) {
+		std::vector<std::string> p;
+		p.push_back(chanName);
+		sendNumeric(fd, RPL_ENDOFNAMES, p, "End of /NAMES list.");
+		return;
+	}
 
-    it = _channels.find(key);
-    if (it == _channels.end())
-        return false;
-    return it->second.hasMember(fd);
+	Channel &ch = *chp;
+	std::ostringstream names;
+	bool first = true;
+
+	for (std::set<int>::const_iterator it = ch.members().begin(); it != ch.members().end(); ++it) {
+		std::map<int, Client>::iterator cit = _clients.find(*it);
+		if (cit == _clients.end())
+			continue;
+		std::string nick = cit->second.getNickname();
+		if (nick.empty())
+			continue;
+
+		if (!first)
+			names << " ";
+		first = false;
+
+		if (ch.isOp(*it))
+			names << "@" << nick;
+		else
+			names << nick;
+	}
+
+	std::vector<std::string> p;
+	p.push_back("=");
+	p.push_back(ch.name());
+	sendNumeric(fd, RPL_NAMREPLY, p, names.str());
+
+	std::vector<std::string> endp;
+	endp.push_back(ch.name());
+	sendNumeric(fd, RPL_ENDOFNAMES, endp, "End of /NAMES list.");
 }
 
-void Server::joinChannel(const std::string &key, const std::string &displayName, int fd)
-{
-    std::map<std::string, Channel>::iterator it;
+void Server::channelPrivmsg(int fd, Client &client, const std::string &chanName, const std::string &text) {
+	std::string key = normalizeChanKey(chanName);
+	Channel *chp = findChannelByKey(key);
+	if (!chp) {
+		sendError(fd, ERR_NOSUCHCHANNEL, chanName);
+		return;
+	}
+	Channel &ch = *chp;
+	if (!ch.hasMember(fd)) {
+		sendError(fd, ERR_CANNOTSENDTOCHAN, ch.name());
+		return;
+	}
 
-    it = _channels.find(key);
-    if (it == _channels.end())
-        it = _channels.insert(std::make_pair(key, Channel(displayName))).first;
-    it->second.addMember(fd);
+	std::string line = ":" + makePrefix(client) + " PRIVMSG " + ch.name() + " :" + text;
+	broadcastToChannel(ch, line, fd);
 }
 
-void Server::partChannel(const std::string &key, int fd)
-{
-    std::map<std::string, Channel>::iterator it;
+void Server::getChannelTopic(int fd, Client &client, const std::string &chanName) {
+	(void) client;
+	std::string key = normalizeChanKey(chanName);
+	Channel *chp = findChannelByKey(key);
+	if (!chp) {
+		sendError(fd, ERR_NOSUCHCHANNEL, chanName);
+		return;
+	}
+	Channel &ch = *chp;
 
-    it = _channels.find(key);
-    if (it == _channels.end())
-        return;
-    it->second.removeMember(fd);
-    if (it->second.empty())
-        _channels.erase(it);
+	if (ch.hasTopic()) {
+		std::vector<std::string> p;
+		p.push_back(ch.name());
+		sendNumeric(fd, RPL_TOPIC, p, ch.topic());
+	} else {
+		std::vector<std::string> p;
+		p.push_back(ch.name());
+		sendNumeric(fd, RPL_NOTOPIC, p, "No topic is set");
+	}
 }
 
-void Server::removeFromAllChannels(int fd)
-{
-    std::map<int, Client>::iterator cit;
-    std::vector<std::string> keys;
-    std::set<std::string>::const_iterator it;
+void Server::setChannelTopic(int fd, Client &client, const std::string &chanName, const std::string &topic) {
+	std::string key = normalizeChanKey(chanName);
+	Channel *chp = findChannelByKey(key);
+	if (!chp) {
+		sendError(fd, ERR_NOSUCHCHANNEL, chanName);
+		return;
+	}
+	Channel &ch = *chp;
 
-    cit = _clients.find(fd);
-    if (cit == _clients.end())
-        return;
-    for (it = cit->second.getChannels().begin(); it != cit->second.getChannels().end(); ++it)
-        keys.push_back(*it);
-    for (size_t i = 0; i < keys.size(); ++i) {
-        partChannel(keys[i], fd);
-        cit->second.partChannel(keys[i]);
-    }
+	if (!ch.hasMember(fd)) {
+		sendError(fd, ERR_NOTONCHANNEL, ch.name());
+		return;
+	}
+	if (ch.topicOpOnly() && !ch.isOp(fd)) {
+		sendError(fd, ERR_CHANOPRIVSNEEDED, ch.name());
+		return;
+	}
+
+	ch.setTopic(topic);
+	std::string line = ":" + makePrefix(client) + " TOPIC " + ch.name() + " :" + topic;
+	broadcastToChannel(ch, line, -1);
 }
 
-void Server::sendToChannel(const std::string &key, const std::string &line, int exceptFd) const
-{
-    std::map<std::string, Channel>::const_iterator it;
-    std::set<int>::const_iterator mit;
-
-    it = _channels.find(key);
-    if (it == _channels.end())
-        return;
-    for (mit = it->second.members().begin(); mit != it->second.members().end(); ++mit) {
-        if (*mit == exceptFd)
-            continue;
-        sendToClient(*mit, line);
-    }
+static bool parseSizeT(const std::string &s, size_t &out) {
+	if (s.empty())
+		return false;
+	size_t v = 0;
+	for (size_t i = 0; i < s.size(); ++i) {
+		if (s[i] < '0' || s[i] > '9')
+			return false;
+		v = v * 10 + static_cast<size_t>(s[i] - '0');
+	}
+	out = v;
+	return true;
 }
 
-std::string Server::getChannelDisplayName(const std::string &key) const
-{
-    std::map<std::string, Channel>::const_iterator it;
+void Server::channelMode(int fd, Client &client, const IrcMessage &msg) {
+	if (msg.params.empty()) {
+		sendError(fd, ERR_NEEDMOREPARAMS, "MODE");
+		return;
+	}
+	std::string chanName = msg.params[0];
+	if (!isChannelName(chanName))
+		return;
 
-    it = _channels.find(key);
-    if (it == _channels.end())
-        return key;
-    return it->second.name();
+	std::string key = normalizeChanKey(chanName);
+	Channel *chp = findChannelByKey(key);
+	if (!chp) {
+		sendError(fd, ERR_NOSUCHCHANNEL, chanName);
+		return;
+	}
+	Channel &ch = *chp;
+
+	if (msg.params.size() == 1) {
+		std::vector<std::string> p;
+		p.push_back(ch.name());
+		p.push_back(ch.modeString());
+		sendNumeric(fd, RPL_CHANNELMODEIS, p, "");
+		return;
+	}
+
+	if (!ch.isOp(fd)) {
+		sendError(fd, ERR_CHANOPRIVSNEEDED, ch.name());
+		return;
+	}
+
+	std::string modes = msg.params[1];
+	int sign = 0;
+	size_t argi = 2;
+
+	for (size_t i = 0; i < modes.size(); ++i) {
+		char m = modes[i];
+		if (m == '+') {
+			sign = +1;
+			continue;
+		}
+		if (m == '-') {
+			sign = -1;
+			continue;
+		}
+		if (sign == 0) continue;
+
+		if (m == 'i') {
+			ch.setInviteOnly(sign == +1);
+		} else if (m == 't') {
+			ch.setTopicOpOnly(sign == +1);
+		} else if (m == 'k') {
+			if (sign == +1) {
+				if (argi >= msg.params.size())
+					continue;
+				ch.setKeyPassword(msg.params[argi++]);
+			} else {
+				ch.clearKeyPassword();
+			}
+		} else if (m == 'l') {
+			if (sign == +1) {
+				if (argi >= msg.params.size())
+					continue;
+				size_t lim;
+				if (parseSizeT(msg.params[argi++], lim))
+					ch.setLimit(lim);
+			} else {
+				ch.clearLimit();
+			}
+		} else if (m == 'o') {
+			if (argi >= msg.params.size())
+				continue;
+			std::string nick = msg.params[argi++];
+			int tfd = findClientFdByNick(nick);
+			if (tfd < 0) {
+				sendError(fd, ERR_NOSUCHNICK, nick);
+				continue;
+			}
+			if (!ch.hasMember(tfd)) {
+				sendError(fd, ERR_USERNOTINCHANNEL, nick + " " + ch.name());
+				continue;
+			}
+			if (sign == +1)
+				ch.addOp(tfd);
+			else
+				ch.removeOp(tfd);
+		}
+	}
+
+	std::ostringstream line;
+	line << ":" << makePrefix(client) << " MODE " << ch.name() << " " << msg.params[1];
+	for (size_t k = 2; k < msg.params.size(); ++k)
+		line << " " << msg.params[k];
+	broadcastToChannel(ch, line.str(), -1);
 }
 
-std::string Server::getChannelDisplayNameOrRaw(const std::string &key, const std::string &raw) const
-{
-    std::map<std::string, Channel>::const_iterator it;
+void Server::channelInvite(int fd, Client &client, const std::string &nick, const std::string &chanName) {
+	std::string key = normalizeChanKey(chanName);
+	Channel *chp = findChannelByKey(key);
+	if (!chp) {
+		sendError(fd, ERR_NOSUCHCHANNEL, chanName);
+		return;
+	}
+	Channel &ch = *chp;
+	if (!ch.isOp(fd)) {
+		sendError(fd, ERR_CHANOPRIVSNEEDED, ch.name());
+		return;
+	}
+	int tfd = findClientFdByNick(nick);
+	if (tfd < 0) {
+		sendError(fd, ERR_NOSUCHNICK, nick);
+		return;
+	}
+	ch.invite(tfd);
 
-    it = _channels.find(key);
-    if (it == _channels.end())
-        return raw;
-    return it->second.name();
+	std::vector<std::string> p;
+	p.push_back(nick);
+	p.push_back(ch.name());
+	sendNumeric(fd, RPL_INVITING, p, "");
+
+	std::map<int, Client>::iterator tit = _clients.find(tfd);
+	if (tit != _clients.end()) {
+		sendToClient(tfd, ":" + makePrefix(client) + " INVITE " + nick + " :" + ch.name());
+	}
 }
 
-void Server::sendNamesReply(int fd, const Client &requester, const std::string &key) const
-{
-    std::map<std::string, Channel>::const_iterator it;
-    std::set<int>::const_iterator mit;
-    std::string nick;
-    std::string chan;
-    std::string names;
+void Server::channelKick(int fd, Client &client, const std::string &chanName, const std::string &nick,
+                         const std::string &reason) {
+	std::string key = normalizeChanKey(chanName);
+	Channel *chp = findChannelByKey(key);
+	if (!chp) {
+		sendError(fd, ERR_NOSUCHCHANNEL, chanName);
+		return;
+	}
+	Channel &ch = *chp;
+	if (!ch.isOp(fd)) {
+		sendError(fd, ERR_CHANOPRIVSNEEDED, ch.name());
+		return;
+	}
+	int tfd = findClientFdByNick(nick);
+	if (tfd < 0) {
+		sendError(fd, ERR_NOSUCHNICK, nick);
+		return;
+	}
+	if (!ch.hasMember(tfd)) {
+		sendError(fd, ERR_USERNOTINCHANNEL, nick + " " + ch.name());
+		return;
+	}
 
-    it = _channels.find(key);
-    if (it == _channels.end())
-        return;
+	std::string msg = reason.empty() ? nick : reason;
+	std::string line = ":" + makePrefix(client) + " KICK " + ch.name() + " " + nick + " :" + msg;
+	broadcastToChannel(ch, line, -1);
 
-    nick = requester.getNickname();
-    if (nick.empty())
-        nick = "*";
-    chan = it->second.name();
+	std::map<int, Client>::iterator tit = _clients.find(tfd);
+	if (tit != _clients.end()) {
+		tit->second.partChannelKey(key);
+	}
+	ch.removeMember(tfd);
 
-    for (mit = it->second.members().begin(); mit != it->second.members().end(); ++mit) {
-        std::map<int, Client>::const_iterator cit = _clients.find(*mit);
-        if (cit == _clients.end())
-            continue;
-        if (!names.empty())
-            names += " ";
-        names += cit->second.getNickname();
-    }
+	if (ch.empty())
+		_channels.erase(key);
+}
 
-    sendToClient(fd, ":" + getServerName() + " " + numeric3(RPL_NAMREPLY) + " " + nick + " = " + chan + " :" + names);
-    sendToClient(fd, ":" + getServerName() + " " + numeric3(RPL_ENDOFNAMES) + " " + nick + " " + chan + " :End of /NAMES list.");
+// ---------------- commands registry ----------------
+
+void Server::initCommands() {
+	_commands["CAP"] = new Cap();
+	_commands["PASS"] = new Pass();
+	_commands["NICK"] = new Nick();
+	_commands["USER"] = new User();
+	_commands["PING"] = new Ping();
+	_commands["PONG"] = new Pong();
+	_commands["PRIVMSG"] = new PrivMsg();
+	_commands["NOTICE"] = new Notice();
+	_commands["QUIT"] = new Quit();
+
+	_commands["JOIN"] = new Join();
+	_commands["PART"] = new Part();
+	_commands["NAMES"] = new Names();
+
+	_commands["MODE"] = new Mode();
+	_commands["TOPIC"] = new Topic();
+	_commands["INVITE"] = new Invite();
+	_commands["KICK"] = new Kick();
+}
+
+void Server::destroyCommands() {
+	for (std::map<std::string, Command *>::iterator it = _commands.begin(); it != _commands.end(); ++it)
+		delete it->second;
+	_commands.clear();
 }

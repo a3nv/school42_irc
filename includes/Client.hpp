@@ -2,7 +2,6 @@
 #define CLIENT_HPP
 
 #include <cstddef>
-#include <iostream>
 #include <string>
 #include <set>
 
@@ -19,6 +18,7 @@ class Client {
 		std::string _nickname;
 
 		std::string _inbuf;
+		std::string _outbuf;
 
 		bool _hasPass;
 		bool _hasNick;
@@ -34,6 +34,11 @@ class Client {
 
 		void appendInput(const char* data, size_t n);
 		bool extractLine(std::string &line);
+
+		void appendOutput(const std::string &data);
+		bool hasOutput() const;
+		const std::string &outbuf() const;
+		void consumeOutput(size_t n);
 
 		int getFd() const;
 		int getPort() const;
@@ -60,12 +65,12 @@ class Client {
 		void setRegistered(bool v);
 		bool isRegistered() const;
 
-		void joinChannel(const std::string &name);
-		void partChannel(const std::string &name);
-		bool isInChannel(const std::string &name) const;
-		const std::set<std::string> &getChannels() const;
-
 		size_t inbufSize() const;
+
+		void joinChannelKey(const std::string &key);
+		void partChannelKey(const std::string &key);
+		bool isInChannelKey(const std::string &key) const;
+		const std::set<std::string> &getChannelKeys() const;
 };
 
 #endif

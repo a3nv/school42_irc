@@ -39,7 +39,7 @@ bool Nick::isValidNickname(const std::string &nickname)
     return true;
 }
 
-bool Nick::validate(const std::string &nickname, const Server &server, int fd) const
+bool Nick::validate(const std::string &nickname, Server &server, int fd) const
 {
     if (!isValidNickname(nickname)) {
         server.sendError(fd, ERR_ERRONEUSNICKNAME, nickname);
@@ -68,7 +68,6 @@ void Nick::execute(Server &server, int fd, Client &client, const IrcMessage &msg
     // todo:
     // - broadcast NICK change to channels
     // - update registration state (PASS/NICK/USER)
-	std::cout << "Setting nick: " << newNick << std::endl;
     client.setNickname(newNick);
 	client.setHasNick(true);
 	server.tryRegister(fd, client);

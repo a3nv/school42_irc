@@ -1,10 +1,12 @@
 #include "../../includes/Command.hpp"
+#include "../../includes/Server.hpp"
+#include "../../includes/Client.hpp"
 
-Mode::Mode() : Command("MODE") {
-    std::cout << "MODE command initialized." << std::endl
-    << "Sets or unsets user or channel modes." << std::endl; // To be deleted
-}
+Mode::Mode() : Command("MODE") {}
+Mode::~Mode() {}
 
-Mode::~Mode() {
-    std::cout << "MODE command destroyed." << std::endl; // To be deleted
+void Mode::execute(Server &server, int fd, Client &client, const IrcMessage &msg)
+{
+    (void)client;
+    server.channelMode(fd, client, msg);
 }

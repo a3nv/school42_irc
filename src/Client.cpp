@@ -1,55 +1,53 @@
 #include "../includes/Client.hpp"
-#include <cstddef>
-#include <string>
-#include <unistd.h>
+#include <cstring>
 
 Client::Client()
-    : _fd(-1),
-      _port(-1),
-      _ip(""),
-      _name(""),
-      _realname(""),
-      _nickname(""),
-      _inbuf(""),
-      _hasPass(false),
-      _hasNick(false),
-      _hasUser(false),
-      _registered(false),
-      _channels()
+: _fd(-1), _port(0), _ip(""),
+  _name(""), _realname(""), _nickname(""),
+  _inbuf(""), _outbuf(""),
+  _hasPass(false), _hasNick(false), _hasUser(false), _registered(false)
 {
 }
 
 Client::Client(int fd, int port, const std::string& ip)
-    : _fd(fd),
-      _port(port),
-      _ip(ip),
-      _name(""),
-      _realname(""),
-      _nickname(""),
-      _inbuf(""),
-      _hasPass(false),
-      _hasNick(false),
-      _hasUser(false),
-      _registered(false),
-      _channels()
+: _fd(fd), _port(port), _ip(ip),
+  _name(""), _realname(""), _nickname(""),
+  _inbuf(""), _outbuf(""),
+  _hasPass(false), _hasNick(false), _hasUser(false), _registered(false)
 {
 }
 
 Client::~Client() {}
 
 void Client::appendInput(const char* data, size_t n) {
-	_inbuf.append(data, n);
+    _inbuf.append(data, n);
 }
 
 bool Client::extractLine(std::string &line) {
-	std::string::size_type pos = _inbuf.find('\n');
-	if (pos == std::string::npos)
-		return false;
-	line = _inbuf.substr(0, pos);
-	if (!line.empty() && line[line.size() - 1] == '\r')
-		line.erase(line.size() - 1);
-	_inbuf.erase(0, pos + 1);
-	return true;
+    size_t pos = _inbuf.find('\n');
+    if (pos == std::string::npos)
+        return false;
+    line = _inbuf.substr(0, pos);
+    if (!line.empty() && line[line.size() - 1] == '\r')
+        line.erase(line.size() - 1);
+    _inbuf.erase(0, pos + 1);
+    return true;
+}
+
+void Client::appendOutput(const std::string &data) {
+    _outbuf += data;
+}
+bool Client::hasOutput() const {
+    return !_outbuf.empty();
+}
+const std::string &Client::outbuf() const {
+    return _outbuf;
+}
+void Client::consumeOutput(size_t n) {
+    if (n >= _outbuf.size())
+        _outbuf.clear();
+    else
+        _outbuf.erase(0, n);
 }
 
 int Client::getFd() const { return _fd; }
@@ -77,24 +75,9 @@ bool Client::hasUser() const { return _hasUser; }
 void Client::setRegistered(bool v) { _registered = v; }
 bool Client::isRegistered() const { return _registered; }
 
-void Client::joinChannel(const std::string &name)
-{
-    _channels.insert(name);
-}
-
-void Client::partChannel(const std::string &name)
-{
-    _channels.erase(name);
-}
-
-bool Client::isInChannel(const std::string &name) const
-{
-    return _channels.count(name) != 0;
-}
-
-const std::set<std::string> &Client::getChannels() const
-{
-    return _channels;
-}
-
 size_t Client::inbufSize() const { return _inbuf.size(); }
+
+void Client::joinChannelKey(const std::string &key) { _channels.insert(key); }
+void Client::partChannelKey(const std::string &key) { _channels.erase(key); }
+bool Client::isInChannelKey(const std::string &key) const { return _channels.count(key) != 0; }
+const std::set<std::string> &Client::getChannelKeys() const { return _channels; }
