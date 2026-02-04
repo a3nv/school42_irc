@@ -3,6 +3,7 @@
 #include "../../includes/Client.hpp"
 
 #include <cctype>
+#include <iostream>
 
 Nick::Nick() : Command("NICK") {
 }
@@ -21,7 +22,6 @@ bool Nick::isValidNickname(const std::string &nickname)
 {
     size_t i;
     unsigned char c;
-
     if (nickname.empty() || nickname.length() > 9)
         return false;
 

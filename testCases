@@ -1,0 +1,59 @@
+# server parameters validation
+./ircserv
+./ircserv 
+./ircserv abc pwd
+./ircserv 80 pwd  
+./ircserv 99999 pwd
+
+# irc-tester (Test with 200 clients)
+https://github.com/bennamrouche/irc-tester?tab=readme-ov-file
+cd bin  
+java -jar irc-tester-2.1.jar
+
+# Registration
+PASS password --> First (NICK & USER should be after)
+NICK user_nickname
+USER user 0 * :user
+
+# NICK 
+after NICK serever sends a message: --> (optional ?)
+"You're now known as nick-name"
+
+# Missing Parameters (Correct)
+JOIN
+PRIVMSG
+KICK
+
+# Buffering
+
+// sending command in several parts --> server hangs and doesn't respond
+privmsg #ch CTRL+D (twice)
+hello --> stops responding to all messages and recv() returns nothing 
+part #ch
+quit :bye
+quit :bye \r\n
+
+
+
+# Channel
+
+JOIN #channel ----> OK
+PART #channel ----> OK
+Kick user (OP)----> OK
+Kick #channel user -> OK (if not operator = ERROR)
+
+PRIVMSG #channel :hello --> OK
+PRIVMSG user2 :hello    --> OK
+
+Mode +i                 --> OK
+Mode +k                 --> OK
+Mode +o                 --> OK
+
+#INVITE ---> ok
+
+
+# Quit
+
+// Client doesn't disconnect after "QUIT" 
+Quit :Reason
+Quit --> it quits after 2 newlines (ENTER)

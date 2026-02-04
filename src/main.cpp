@@ -42,8 +42,8 @@ static bool parsePort(const char *s, int &port, std::string &err) {
         err = "Port is not a valid integer.";
         return false;
     }
-    if (v < 1 || v > 65535) {
-        err = "Port must be in range 1..65535.";
+    if (v < 1024 || v > 65535) {
+        err = "Port must be in range 1024..65535.";
         return false;
     }
     port = static_cast<int>(v);

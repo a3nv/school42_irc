@@ -280,9 +280,13 @@ void Server::acceptClient(int cfd, const std::string &ip, int port) {
 
 bool Server::recvFromClient(int fd) {
 	char buf[4096];
+	memset(buf, 0, sizeof(buf));
 	ssize_t n = ::recv(fd, buf, sizeof(buf), 0);
-	if (n == 0)
+	// std::cout << n << std::endl;
+	if (n == 0){
+		// std::cout << "EOF Recieved" << std::endl;
 		return false;
+	}
 	if (n < 0) {
 		if (errno == EAGAIN || errno == EWOULDBLOCK)
 			return true;
@@ -301,6 +305,7 @@ bool Server::recvFromClient(int fd) {
 		if (_pendingDisconnect.count(fd))
 			break;
 	}
+	
 	return true;
 }
 
