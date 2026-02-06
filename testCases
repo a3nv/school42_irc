@@ -8,7 +8,7 @@
 # irc-tester (Test with 200 clients)
 https://github.com/bennamrouche/irc-tester?tab=readme-ov-file
 cd bin  
-java -jar irc-tester-2.1.jar
+java -jar irc-tester-2-alpha.jar
 
 # Registration
 PASS password --> First (NICK & USER should be after)
@@ -38,20 +38,29 @@ quit :bye \r\n
 # Channel
 
 JOIN #channel ----> OK
-PART #channel ----> OK
-Kick user (OP)----> OK
-Kick #channel user -> OK (if not operator = ERROR)
+PART #channel ----> OK (1 or more channels)
+KICK user (OP)----> OK
+KICK #channel user -> OK (if not operator = ERROR)
+
+# INVITE ---> ok
 
 PRIVMSG #channel :hello --> OK
 PRIVMSG user2 :hello    --> OK
+NOTICE unknown_user :hii --> OK (Expected behavoir: NO ERROR MSG)
+
+# MODE
 
 Mode +i                 --> OK
 Mode +k                 --> OK
 Mode +o                 --> OK
+Mode +l                 --> OK
+Mode +t                 --> OK
 
-#INVITE ---> ok
+# Operator
+if operator leaves channel , next user joins is the operator (Correct behavior is: no one becomes operator)
 
-
+# NAME #channel ---> OK
+# PING/PONG  ------> OK
 # Quit
 
 // Client doesn't disconnect after "QUIT" 
