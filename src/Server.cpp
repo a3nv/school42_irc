@@ -75,10 +75,7 @@ const std::map<int, Client> &Server::getClients() const { return _clients; }
 int Server::getClientFd(const Client &client) const { return client.getFd(); }
 
 bool Server::setNonBlocking(int fd) {
-	int flags = fcntl(fd, F_GETFL, 0);
-	if (flags < 0)
-		return false;
-	if (fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0)
+	if (fcntl(fd, F_SETFL, O_NONBLOCK) < 0)
 		return false;
 	return true;
 }
@@ -282,9 +279,7 @@ bool Server::recvFromClient(int fd) {
 	char buf[4096];
 	memset(buf, 0, sizeof(buf));
 	ssize_t n = ::recv(fd, buf, sizeof(buf), 0);
-	// std::cout << n << std::endl;
-	if (n == 0){
-		// std::cout << "EOF Recieved" << std::endl;
+ 	if (n == 0){
 		return false;
 	}
 	if (n < 0) {
@@ -305,7 +300,6 @@ bool Server::recvFromClient(int fd) {
 		if (_pendingDisconnect.count(fd))
 			break;
 	}
-	
 	return true;
 }
 
