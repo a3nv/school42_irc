@@ -8,6 +8,8 @@
 #include <vector>
 #include <set>
 
+#define MAX_CLIENTS 500
+
 class Client;
 class Command;
 

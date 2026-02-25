@@ -373,6 +373,12 @@ void Server::run() {
 			socklen_t len = sizeof(client);
 			int cfd = accept(_listenFd, reinterpret_cast<sockaddr *>(&client), &len);
 			if (cfd >= 0) {
+				if (_clients.size() >= MAX_CLIENTS){
+					const char *msg = "ERROR :Server is full\r\n";
+					send(cfd, msg, strlen(msg), 0);
+					close(cfd);
+					continue;
+				}
 				std::string ip = inet_ntoa(client.sin_addr);
 				int port = ntohs(client.sin_port);
 				acceptClient(cfd, ip, port);

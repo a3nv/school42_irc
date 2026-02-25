@@ -1,5 +1,5 @@
 CXX = c++
-CXXFLAGS = -Wall -Werror -Wextra -std=c++98
+CXXFLAGS = -Wall -Werror -Wextra -std=c++98 -g
 CPPFLAGS = -I ./includes
 NAME = ircserv
 SRC = src/main.cpp\
