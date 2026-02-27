@@ -74,9 +74,7 @@ int main(int argc, char* argv[]) {
         printUsage();
         return 1;
     }
-    std::signal(SIGINT, handleSignal);
-    std::signal(SIGTERM, handleSignal);
-
+	setupSignals();
 	int port;
 	const char *password;
 	std::string err;
@@ -92,7 +90,6 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     std::cout << "Starting server on port: " << port << std::endl;
-	setupSignals();
 	Server server(port, password);
     server.run();
     return 0;
