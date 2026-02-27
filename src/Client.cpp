@@ -81,3 +81,4 @@ void Client::joinChannelKey(const std::string &key) { _channels.insert(key); }
 void Client::partChannelKey(const std::string &key) { _channels.erase(key); }
 bool Client::isInChannelKey(const std::string &key) const { return _channels.count(key) != 0; }
 const std::set<std::string> &Client::getChannelKeys() const { return _channels; }
+size_t Client::outbufSize() const { return _outbuf.size(); }

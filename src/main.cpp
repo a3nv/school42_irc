@@ -92,6 +92,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     std::cout << "Starting server on port: " << port << std::endl;
+	setupSignals();
 	Server server(port, password);
     server.run();
     return 0;

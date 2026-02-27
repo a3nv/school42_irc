@@ -71,6 +71,7 @@ class Client {
 		void partChannelKey(const std::string &key);
 		bool isInChannelKey(const std::string &key) const;
 		const std::set<std::string> &getChannelKeys() const;
+		size_t outbufSize() const;
 };
 
 #endif

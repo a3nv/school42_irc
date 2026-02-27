@@ -7,3 +7,9 @@ void handleSignal(int signal) {
         g_running = 0;
     }
 }
+
+void setupSignals() {
+    signal(SIGINT, handleSignal);
+    signal(SIGTERM, handleSignal);
+    signal(SIGPIPE, SIG_IGN);
+}

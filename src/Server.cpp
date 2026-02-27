@@ -146,6 +146,9 @@ void Server::sendToClient(int fd, const std::string &msg) {
 	if (!endsWithCRLF(out))
 		out += "\r\n";
 	it->second.appendOutput(out);
+	if (it->second.outbufSize() > MAX_OUTBUF) {
+		scheduleDisconnect(fd);
+	}
 }
 
 bool Server::flushClientOutput(int fd) {
@@ -156,7 +159,7 @@ bool Server::flushClientOutput(int fd) {
 	Client &c = it->second;
 	while (c.hasOutput()) {
 		const std::string &buf = c.outbuf();
-		ssize_t n = ::send(fd, buf.c_str(), buf.size(), 0);
+		ssize_t n = ::send(fd, buf.c_str(), buf.size(), MSG_NOSIGNAL);
 		if (n > 0) {
 			c.consumeOutput(static_cast<size_t>(n));
 			continue;
@@ -195,6 +198,11 @@ void Server::sendError(int fd, int code, const std::string &param) {
 	if (code == ERR_NEEDMOREPARAMS) {
 		std::vector<std::string> p(1, param);
 		sendNumeric(fd, code, p, "Not enough parameters");
+		return;
+	}
+	if (code == ERR_UNKNOWNCOMMAND) {
+		std::vector<std::string> p(1, param);
+		sendNumeric(fd, code, p, "Unknown command");
 		return;
 	}
 	if (code == ERR_ALREADYREGISTRED) {
@@ -293,7 +301,10 @@ bool Server::recvFromClient(int fd) {
 		return false;
 
 	it->second.appendInput(buf, static_cast<size_t>(n));
-
+	if (it->second.inbufSize() > MAX_INBUF) {
+		scheduleDisconnect(fd);
+		return true;
+	}
 	std::string line;
 	while (it->second.extractLine(line)) {
 		handleLine(fd, line);
@@ -373,15 +384,16 @@ void Server::run() {
 			socklen_t len = sizeof(client);
 			int cfd = accept(_listenFd, reinterpret_cast<sockaddr *>(&client), &len);
 			if (cfd >= 0) {
+				setNonBlocking(cfd);
 				if (_clients.size() >= MAX_CLIENTS){
 					const char *msg = "ERROR :Server is full\r\n";
-					send(cfd, msg, strlen(msg), 0);
+					::send(cfd, msg, std::strlen(msg), MSG_NOSIGNAL);
 					close(cfd);
-					continue;
+				} else {
+					std::string ip = inet_ntoa(client.sin_addr);
+					int port = ntohs(client.sin_port);
+					acceptClient(cfd, ip, port);
 				}
-				std::string ip = inet_ntoa(client.sin_addr);
-				int port = ntohs(client.sin_port);
-				acceptClient(cfd, ip, port);
 			}
 		}
 
@@ -414,6 +426,7 @@ void Server::run() {
 	}
 
 	std::cout << "Server is shutting down." << std::endl;
+	cleanup();
 }
 
 // ---------------- Parsing / dispatch ----------------

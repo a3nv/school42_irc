@@ -10,6 +10,9 @@
 
 #define MAX_CLIENTS 500
 
+static const size_t MAX_INBUF  = 64 * 1024;
+static const size_t MAX_OUTBUF = 512 * 1024;
+
 class Client;
 class Command;
 
