@@ -1,6 +1,5 @@
-# FT_IRC
+_This project has been created as part of the 42 curriculum by iasonov, relgheit_
 
-This project has been created as part of the 42 curriculum by iasonov and relgheit
 ## Description:
 This project is an implementation of a simplified IRC (Internet Relay Chat) server compliant with the core IRC protocol. The goal is to build a fully functional server capable of handling multiple clients, managing user connections, and supporting real-time text communication.
 
@@ -151,13 +150,44 @@ irssi
 /connect 127.0.0.1 6667 1234
 /join #room
 /msg #room hello from sally
-
-
 ```
 
-# Resources:
-[Modern IRC Client Protocol](https://modern.ircdocs.horse/)
+### WeeChat
 
-[RFC 1459](https://datatracker.ietf.org/doc/html/rfc1459)
+```bash
+# run wechat
+weechat
 
-[Beej's Guide to Network Programming](https://beej.us/guide/bgnet/html/)
+# register server
+/server add irc42 127.0.0.1/4444 -password=1234
+
+# connect to the server
+/connect irc42
+
+/set irc.server.irc42.nicks John
+/set irc.server.irc42.username john
+/set irc.server.irc42.realname "John Doe"
+
+/disconnect irc42
+/connect irc42
+
+/join #room
+
+/msg #room hello from weechat
+
+/msg bob hey bob
+```
+
+## Resources:
+- [Modern IRC Client Protocol](https://modern.ircdocs.horse/)
+- [RFC 1459](https://datatracker.ietf.org/doc/html/rfc1459)
+- [Beej's Guide to Network Programming](https://beej.us/guide/bgnet/html/)
+
+### AI usage disclosure
+AI tools were used as a learning and productivity aid (not as a code generator for the final solution):
+- To better understand IRC concepts and real server behavior “under the hood” (registration flow, numerics, message formatting, CAP negotiation basics, typical client expectations).
+- To suggest non-obvious/manual test scenarios for the implemented commands (edge cases around registration, channel membership, modes, operator actions, and message routing).
+- To speed up manual verification using real IRC clients (irssi and weechat), including command sequences to reproduce scenarios quickly.
+- To do basic sanity checks on protocol formatting and validation rules (CRLF termination, prefix/params/trailing parsing, case handling, and numeric reply expectations).
+
+All implementation decisions and final code were written and validated by the project authors.
