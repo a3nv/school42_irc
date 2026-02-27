@@ -152,6 +152,15 @@ irssi
 /msg #room hello from sally
 ```
 
+```bash
+MODE #test +i
+INVITE bob #test
+MODE #test +t
+TOPIC #test :Only ops can set topic now
+MODE #test +l 1
+KICK #test bob :bye
+```
+
 ### WeeChat
 
 ```bash

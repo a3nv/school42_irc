@@ -581,14 +581,11 @@ void Server::joinChannel(int fd, Client &client, const std::string &chanName, co
 		sendError(fd, ERR_CHANNELISFULL, ch.name());
 		return;
 	}
-
+	if (ch.ops().empty() && ch.members().empty())
+		ch.addOp(fd);
 	ch.addMember(fd);
 	client.joinChannelKey(key);
 	ch.uninvite(fd);
-
-	if (ch.ops().empty())
-		ch.addOp(fd);
-
 	std::string joinLine = ":" + makePrefix(client) + " JOIN :" + ch.name();
 	broadcastToChannel(ch, joinLine, -1);
 
